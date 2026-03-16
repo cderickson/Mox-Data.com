@@ -59,7 +59,7 @@
 .table-title {
     color: #0039A6;
     margin: 0 0 12px 0;
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 600;
     display: flex;
     align-items: center;
@@ -89,6 +89,12 @@
     max-height: none;
     overflow-y: visible;
     min-width: 100%;
+    padding-bottom: 8px;
+}
+
+/* Keep table area stable across pages with fewer rows (non-picks). */
+.table-wrapper.fixed-table-height {
+    min-height: 665px;
 }
 
 /* Only add scrolling when table actually has many rows */
@@ -242,6 +248,44 @@
     color: #333;
 }
 
+.card-image-hover-cell {
+    cursor: zoom-in;
+}
+
+.card-image-tooltip {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 3000;
+    display: none;
+    pointer-events: none;
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+}
+
+.card-image-tooltip-img {
+    width: 240px;
+    height: 335px;
+    object-fit: cover;
+    display: block;
+}
+
+.card-image-tooltip-label {
+    padding: 6px 8px;
+    font-size: 12px;
+    line-height: 1.2;
+    color: #111;
+    background: #fff;
+    border-top: 1px solid #ececec;
+    max-width: 240px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
 /* No data state */
 .no-data-row td.no-data {
     padding: 60px 20px;
@@ -278,25 +322,32 @@
 
 /* Pagination */
 .pagination-container {
-    padding: 20px 24px;
-    border-top: 1px solid #e9ecef;
-    background-color: #f8f9fa;
+    padding: 0px 24px 20px;
     display: flex;
     justify-content: center;
 }
 
-#ReviseButton {
-    width: 160px;
-}
-
-#RemoveButton {
-    width: 160px;
+/* Backward-compatible alias for older markup, safe to keep. */
+.table-action-btn {
+    display: flex;
+    align-items: center;
+    margin-right: 6px;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    width: 150px;
+    justify-content: center;
+    text-align: center;
 }
 
 .pagination-controls {
     display: flex;
     align-items: center;
     gap: 16px;
+}
+
+.header-pagination-controls {
+    justify-content: flex-end;
 }
 
 .pagination-btn {
@@ -310,13 +361,19 @@
     text-align: center;
 }
 
+.table-floating-actions {
+    display: flex;
+    justify-content: center;
+    padding: 12px 0 4px 0;
+}
+
 .pagination-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 
 .page-info {
-    color: #666;
+    color: #000;
     font-size: 14px;
     font-weight: 500;
     padding: 0 16px;
@@ -412,8 +469,12 @@
     }
     
     .table-title {
-        font-size: 18px;
+        font-size: 17px;
         margin-bottom: 8px;
+    }
+
+    .table-title i {
+        font-size: 17px;
     }
     
     .control-buttons {
@@ -430,6 +491,10 @@
     .modern-table td {
         padding: 5px 8px;
         font-size: 11px;
+    }
+
+    .table-wrapper.fixed-table-height {
+        min-height: 560px;
     }
 
     
@@ -454,11 +519,15 @@
     }
     
     .table-title {
-        font-size: 16px;
+        font-size: 15px;
         flex-direction: column;
         align-items: flex-start;
         gap: 6px;
         margin-bottom: 6px;
+    }
+
+    .table-title i {
+        font-size: 15px;
     }
 
     
@@ -466,6 +535,10 @@
     .modern-table td {
         padding: 4px 6px;
         font-size: 10px;
+    }
+
+    .table-wrapper.fixed-table-height {
+        min-height: 495px;
     }
     
     .card-lists {

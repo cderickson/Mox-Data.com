@@ -11,6 +11,8 @@ body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
     margin: 0;
     padding: 0;
+    /* Global UI scale: mirrors ~90% browser zoom */
+    zoom: 0.9;
     background-color: #e5e7eb; /* neutral-300 */
     color: #333333;
     line-height: 1.5;
@@ -258,6 +260,11 @@ body {
 }
 
 /* Layout Styles */
+:root {
+    --sidebar-width: 280px;
+    --sidebar-collapsed-visible: 50px;
+}
+
 .app-layout {
     display: flex;
     min-height: calc(100vh - 72px);
@@ -265,22 +272,25 @@ body {
 }
 
 .sidebar {
-    width: 280px;
+    width: var(--sidebar-width);
     background: white;
     border-right: 1px solid #e9ecef;
     padding: 0;
     position: fixed;
-    height: calc(100vh - 72px);
     left: 0;
     top: 72px;
+    bottom: 0;
+    height: auto;
     z-index: 999;
-    transition: transform 0.3s ease;
+    transition: left 0.3s ease;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+    will-change: left;
 }
 
 .sidebar.collapsed {
-    transform: translateX(-82%);
+    left: calc(-1 * (var(--sidebar-width) - var(--sidebar-collapsed-visible)));
 }
 
 /* Sidebar collapse button */
@@ -394,14 +404,15 @@ body {
 /* Main Content Area */
 .main-content {
     flex: 1;
-    margin-left: 280px;
+    margin-left: var(--sidebar-width);
     padding: 12px;
     min-width: 0;
+    transition: margin-left 0.3s ease;
 }
 
 /* Adjust main content when sidebar is collapsed - higher specificity */
 .app-layout .sidebar.collapsed ~ .main-content {
-    margin-left: calc(280px * 0.18) !important;
+    margin-left: var(--sidebar-collapsed-visible) !important;
 }
 
 /* Container Styles */
@@ -413,6 +424,7 @@ body {
 
 .content-wrapper {
     width: 100%;
+    padding-top: 6px;
 }
 
 /* Getting Started Page Container */
@@ -713,6 +725,19 @@ p {
     color: white;
 }
 
+/* Shared sizing/layout for page header action buttons. */
+.header-action-btn {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 6px;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    width: 150px;
+    justify-content: center;
+    text-align: center;
+}
+
 /* Table Styles */
 .modern-table,
 table {
@@ -786,18 +811,27 @@ table tbody tr:last-child td {
     /* Inner padding to visibly show a 16px inset around content */
     padding: 16px;
     width: min(850px, calc(100vw - 32px));
+    max-height: min(85vh, 760px);
     overflow: hidden;
     position: absolute;
     top: 50%;
     left: calc(50% + 140px); /* Center of viewport + half sidebar width (280px / 2) */
     transform: translate(-50%, -50%); /* Perfect centering regardless of modal size */
     display: grid;
-    grid-template-rows: 1fr auto; /* image area + caption */
+    grid-template-rows: minmax(0, 1fr) auto; /* bounded image area + caption */
+}
+
+/* Legacy container is unused; remove from layout so it cannot steal row space */
+.image-modal .image-modal-image-container {
+    display: none;
 }
 
 .image-modal .modal-image {
+    grid-row: 1;
     width: 100%;
-    height: 100%; /* fill available image area */
+    height: 100%; /* fill bounded image row */
+    min-height: 0;
+    max-height: 100%;
     display: block;
     object-fit: contain; /* maintain aspect ratio */
     background: #f8f9fa; /* subtle background to visualize 16px padding */
@@ -805,6 +839,7 @@ table tbody tr:last-child td {
 }
 
 .image-modal .image-modal-caption {
+    grid-row: 2;
     padding: 16px 4px 4px 4px; /* only top padding; others zero to avoid double spacing */
     background: #fff;
     border-top: 1px solid #e9ecef;
@@ -1065,6 +1100,8 @@ table tbody tr:last-child td {
 .features-container .section-card.feature-card {
     display: flex;
     flex-direction: column;
+    max-height: 420px;
+    overflow: hidden;
 }
 
 /* Remove default margins inside grid items; rely on grid gap instead */
@@ -1085,6 +1122,8 @@ table tbody tr:last-child td {
     display: flex;
     align-items: center;
     justify-content: center;
+    height: 140px;
+    max-height: 140px;
 }
 
 /* Responsive: tweak card min widths for smaller screens */
@@ -1097,7 +1136,8 @@ table tbody tr:last-child td {
 .home-container .section-card.feature-card img,
 .features-container .section-card.feature-card img {
     width: 100%;
-    height: auto; /* maintain aspect ratio */
+    height: 100%;
+    object-fit: contain; /* preserve aspect ratio, fit inside fixed image area */
     display: block;
     margin-bottom: 16px; /* space between image and description */
 }
@@ -1513,7 +1553,8 @@ table tbody tr:last-child td {
     
     .sidebar {
         top: 64px; /* Adjust sidebar position for mobile header */
-        height: calc(100vh - 64px);
+        bottom: 0;
+        height: auto;
     }
     
     .app-layout {
@@ -1535,6 +1576,10 @@ table tbody tr:last-child td {
     
     .main-content {
         padding: 16px;
+    }
+
+    .content-wrapper {
+        padding-top: 4px;
     }
     
     .section {
@@ -1587,6 +1632,10 @@ table tbody tr:last-child td {
     
     .main-content {
         padding: 12px;
+    }
+
+    .content-wrapper {
+        padding-top: 3px;
     }
     
     .section {

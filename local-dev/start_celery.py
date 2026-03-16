@@ -16,7 +16,7 @@ def main():
     # Start Celery worker with better compatibility settings
     try:
         subprocess.run([
-            'celery', '-A', 'app.celery', 'worker',
+            sys.executable, '-m', 'celery', '-A', 'app.celery', 'worker',
             '--loglevel=info',
             '--concurrency=1',
             '--pool=solo'  # Use solo pool for Windows compatibility
@@ -27,7 +27,7 @@ def main():
         print(f"Failed to start Celery worker: {e}")
         return False
     except FileNotFoundError:
-        print("Celery not found. Please install it with: pip install celery")
+        print("Celery not found in this environment. Please install it with: python -m pip install celery")
         return False
     
     return True

@@ -536,7 +536,6 @@ def parse_draft_log(file,initial):
     while len(PLAYER_LIST) < 7:
         PLAYER_LIST.append("NA")
     DRAFTS_TABLE.append([DRAFT_ID,HERO] + PLAYER_LIST + [0,0,FORMAT,DATE])
-
     return (DRAFTS_TABLE,PICKS_TABLE,DRAFT_ID)
 def check_timeout(ga):
     for i in ga:

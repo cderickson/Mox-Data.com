@@ -5,9 +5,88 @@ Add these routes to your Flask app for easy database inspection during testing.
 
 from flask import Blueprint, jsonify, render_template_string
 from modules.extensions import db
-from modules.models import Player, Match, Game, Play, Pick, Draft, GameActions, Removed, CardsPlayed, TaskHistory
+from modules.models import (
+    Player,
+    Match,
+    Game,
+    Play,
+    Pick,
+    Draft,
+    GameActions,
+    Removed,
+    CardsPlayed,
+    TaskHistory,
+    MultifacedCard,
+    InputOption,
+    AllDeck,
+)
 
 debug_bp = Blueprint('debug', __name__, url_prefix='')
+
+
+def _summarize_runtime_loaded_data():
+    """Return lightweight summaries of in-memory loaded data from modules.views."""
+    summary = {}
+    try:
+        from modules import views as views_module
+
+        # Populate globals if not already loaded.
+        views_module.ensure_data_loaded()
+
+        options = getattr(views_module, "options", None)
+        multifaced = getattr(views_module, "multifaced", None)
+        all_decks = getattr(views_module, "all_decks", None)
+
+        options_sample = {}
+        if isinstance(options, dict):
+            for key in list(options.keys())[:3]:
+                value = options.get(key, [])
+                options_sample[key] = value[:3] if isinstance(value, list) else value
+
+        multifaced_sample = {}
+        if isinstance(multifaced, dict):
+            for category in list(multifaced.keys())[:2]:
+                front_back_map = multifaced.get(category, {})
+                if isinstance(front_back_map, dict):
+                    sample_pairs = list(front_back_map.items())[:3]
+                    multifaced_sample[category] = sample_pairs
+                else:
+                    multifaced_sample[category] = str(type(front_back_map).__name__)
+
+        all_decks_sample = {}
+        if isinstance(all_decks, dict) and all_decks:
+            first_month = next(iter(all_decks.keys()))
+            month_rows = all_decks.get(first_month, [])
+            first_row = month_rows[0] if month_rows else None
+            all_decks_sample = {
+                "sample_month": first_month,
+                "month_entry_count": len(month_rows) if isinstance(month_rows, list) else 0,
+                "first_entry_type": type(first_row).__name__ if first_row is not None else None,
+                "first_entry_preview": str(first_row)[:300] if first_row is not None else None,
+            }
+
+        summary = {
+            "options": {
+                "type": type(options).__name__,
+                "count": len(options) if isinstance(options, dict) else None,
+                "sample": options_sample,
+            },
+            "multifaced": {
+                "type": type(multifaced).__name__,
+                "count": len(multifaced) if isinstance(multifaced, dict) else None,
+                "sample": multifaced_sample,
+            },
+            "all_decks": {
+                "type": type(all_decks).__name__,
+                "count": len(all_decks) if isinstance(all_decks, dict) else None,
+                "sample": all_decks_sample,
+            },
+        }
+    except Exception as e:
+        summary = {"error": str(e)}
+
+    return summary
+
 
 @debug_bp.route('/db')
 def inspect_database():
@@ -48,6 +127,11 @@ def inspect_database():
             {% endif %}
         </div>
         {% endfor %}
+
+        <hr>
+        <h2>Loaded Runtime Data (Not DB Rows)</h2>
+        <p><em>Current in-memory structures used by app logic.</em></p>
+        <pre>{{ runtime_data }}</pre>
         
         <hr>
         <p><strong>Quick Actions:</strong></p>
@@ -56,6 +140,9 @@ def inspect_database():
             <li><a href="/db/players">View Players Only</a></li>
             <li><a href="/db/matches">View Matches Only</a></li>
             <li><a href="/db/task_history">View Task History</a></li>
+            <li><a href="/db/multifaced_cards">View Multifaced Cards</a></li>
+            <li><a href="/db/input_options">View Input Options</a></li>
+            <li><a href="/db/all_decks">View All Decks</a></li>
             <li><a href="/recent">View Recent Activity</a></li>
         </ul>
     </body>
@@ -73,7 +160,10 @@ def inspect_database():
         ("Game Actions", GameActions),
         ("Removed Games", Removed),
         ("Cards Played", CardsPlayed),
-        ("Task History", TaskHistory)
+        ("Task History", TaskHistory),
+        ("Multifaced Cards", MultifacedCard),
+        ("Input Options", InputOption),
+        ("All Decks", AllDeck),
     ]
     
     tables = []
@@ -117,7 +207,8 @@ def inspect_database():
                 'error': str(e)
             })
     
-    return render_template_string(html, tables=tables)
+    runtime_data = _summarize_runtime_loaded_data()
+    return render_template_string(html, tables=tables, runtime_data=runtime_data)
 
 @debug_bp.route('/db/json')
 def inspect_database_json():
@@ -132,7 +223,10 @@ def inspect_database_json():
         ("game_actions", GameActions),
         ("removed_cards", Removed),
         ("cards_played", CardsPlayed),
-        ("task_history", TaskHistory)
+        ("task_history", TaskHistory),
+        ("multifaced_cards", MultifacedCard),
+        ("input_options", InputOption),
+        ("all_decks", AllDeck),
     ]
     
     result = {}
@@ -164,6 +258,8 @@ def inspect_database_json():
                 'status': 'error',
                 'error': str(e)
             }
+
+    result["runtime_loaded_data"] = _summarize_runtime_loaded_data()
     
     return jsonify(result)
 
@@ -180,7 +276,10 @@ def inspect_specific_table(table_name):
         'game_actions': GameActions,
         'removed_cards': Removed,
         'cards_played': CardsPlayed,
-        'task_history': TaskHistory
+        'task_history': TaskHistory,
+        'multifaced_cards': MultifacedCard,
+        'input_options': InputOption,
+        'all_decks': AllDeck,
     }
     
     model = model_map.get(table_name.lower())

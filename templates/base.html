@@ -310,7 +310,7 @@
       </nav>
 
       <!-- Main Content Area -->
-      <div class="main-content" id="main-content" {% if request.cookies.get('sidebarCollapsed') == 'true' %}style="margin-left: 0;"{% endif %}>
+      <div class="main-content" id="main-content" {% if request.cookies.get('sidebarCollapsed') == 'true' %}style="margin-left: 50px;"{% endif %}>
         <!-- Page Content -->
         <main class="content-wrapper">
           {% block content %}{% endblock %}
@@ -542,11 +542,11 @@
           <div class="modal-body">
             <form id="importForm" action="/load" method="POST" enctype="multipart/form-data">
               <div>
-                <label class="form-label">Select GameLog/DraftLog Files</label>
+                <label class="form-label">Select the .zip file created by the Zip-MTGO-Logs script</label>
                 <input type="file" class="form-input" name="file" accept=".zip" required id="importFileInput" onchange="validateImportFiles()">
-                <small id="importFileHelpText" >Select the .zip file created by the Zip-MTGO-Logs script</small>
               </div>
             </form>
+            <br>
             <div class="message-box standard">
               <h4><i class="fas fa-info-circle"></i>Importing Details</h4>
               <ul>
@@ -639,13 +639,12 @@
           </div>
 
           <div class="modal-body">
-            <form id="loadRevisionsForm" action="/load_revisions_from_app" method="POST" enctype="multipart/form-data">            
+            <form id="loadRevisionsForm" action="/load_revisions_from_app" method="POST" enctype="multipart/form-data">
               <div>
-                <label class="form-label">Select ALL_DATA File</label>
+                <label class="form-label">Select the ALL_DATA file from your MTGO-Tracker save folder.</label>
                 <input type="file" class="form-input" name="folder" required id="loadRevisionsFileInput" onchange="validateLoadRevisionsFiles()">
-                <small id="loadRevisionsHelpText" >Select the ALL_DATA file from your MTGO-Tracker save folder.</small>
               </div>
-              
+              <br>
               <div class="message-box standard">
                 <h4><i class="fas fa-info-circle"></i> How to Select File</h4>
                 <ol>
@@ -970,10 +969,10 @@
       modal.style.display = 'none';
       document.body.style.overflow = 'auto';
       
-      // Reset form and help text
+      // Reset form
       document.getElementById('importForm').reset();
-      const helpText = document.getElementById('importFileHelpText');
-      helpText.innerHTML = 'Select the .zip file created by the Zip-MTGO-Logs script';
+      const submitBtn = document.getElementById('importSubmitBtn');
+      if (submitBtn) submitBtn.disabled = true;
     }
     
     function showImportAppModal() {
@@ -1339,10 +1338,8 @@
     function validateImportFiles() {
       const fileInput = document.getElementById('importFileInput');
       const submitBtn = document.getElementById('importSubmitBtn');
-      const helpText = document.getElementById('importFileHelpText');
       
       if (fileInput.files.length === 0) {
-        helpText.innerHTML = 'Select the .zip file created by the Zip-MTGO-Logs script';
         submitBtn.disabled = true;
         return;
       }
@@ -1352,12 +1349,8 @@
       
       // Check if it's a zip file
       if (fileName.endsWith('.zip')) {
-        helpText.innerHTML = '<i class="fas fa-check-circle"></i> ZIP file selected.';
-        helpText.style.color = '#22c562';
         submitBtn.disabled = false;
       } else {
-        helpText.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Please select a ZIP file.';
-        helpText.style.color = '#ef4444';
         submitBtn.disabled = true;
       }
     }
@@ -1535,7 +1528,7 @@
         collapseBtn.title = 'Expand Sidebar';
         // Adjust main content margin if needed
         if (mainContent) {
-          mainContent.style.marginLeft = '0';
+          mainContent.style.marginLeft = '50px';
         }
         // Disable keyboard focus on all sidebar links when collapsed
         sidebarLinks.forEach(link => {

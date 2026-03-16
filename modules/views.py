@@ -6,7 +6,21 @@ from sqlalchemy.sql.expression import not_
 from flask_login import login_user, login_required, logout_user, current_user
 from datetime import datetime, timedelta
 import datetime
-from modules.models import Player, Match, Game, Play, Pick, Draft, GameActions, Removed, CardsPlayed, TaskHistory
+from modules.models import (
+	Player,
+	Match,
+	Game,
+	Play,
+	Pick,
+	Draft,
+	GameActions,
+	Removed,
+	CardsPlayed,
+	TaskHistory,
+	InputOption,
+	MultifacedCard,
+	AllDeck,
+)
 from modules.extensions import db
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
@@ -168,105 +182,99 @@ def update_draft_wins(uid, username, draft_id):
 		debug_log(f"Error committing draft ID update: {str(e)}")
 
 def get_input_options():
-	"""Load input options from local file"""
-	input_options_file = os.path.join('auxiliary', 'INPUT_OPTIONS.txt')
-	
-	if not os.path.exists(input_options_file):
-		debug_log(f"Input options file not found: {input_options_file}")
-		return {}
-	
-	in_header = False
-	in_instr = True
-	input_options = {}
-	x = ""
-	y = []
-	
+	"""Load input options from database table and emit legacy key names."""
+	legacy_key_by_var = {
+		"Match_Type_Constructed": "Constructed Match Types",
+		"Match_Type_Booster_Draft": "Booster Draft Match Types",
+		"Match_Type_Sealed": "Sealed Match Types",
+		"P1_P2_Arch": "Archetypes",
+		"Format_Constructed": "Constructed Formats",
+		"Format_Limited": "Limited Formats",
+		"Limited_Format_Cube": "Cube Formats",
+		"Limited_Format_Booster_Draft": "Booster Draft Formats",
+		"Limited_Format_Sealed": "Sealed Formats",
+	}
+
 	try:
-		with open(input_options_file, 'r', encoding='utf-8', errors='ignore') as f:
-			lines = f.read().replace('\x00', '').split('\n')
-			
-		for i in lines:
-			if i == "-----------------------------":
-				if in_instr:
-					in_instr = False
-				in_header = not in_header
-				if in_header == False:
-					x = last.split(":")[0].split("# ")[1]
-				elif x != "":
-					input_options[x] = y
-					y = []                        
-			elif (in_header == False) and (i != "") and (in_instr == False):
-				y.append(i)
-			last = i
-		
-		debug_log(f"Loaded input options with {len(input_options)} categories from local file")
+		rows = InputOption.query.order_by(InputOption.table_nm, InputOption.var_nm).all()
+		input_options = {key: [] for key in legacy_key_by_var.values()}
+
+		for row in rows:
+			key = legacy_key_by_var.get(row.var_nm)
+			if key is None:
+				continue
+
+			value = row.options_lst if isinstance(row.options_lst, list) else []
+			input_options[key].extend(str(item) for item in value if item is not None)
+
+		# Remove duplicates while preserving order.
+		for key, values in input_options.items():
+			input_options[key] = list(dict.fromkeys(values))
+
+		debug_log(f"Loaded input options with {len(input_options)} categories from database table")
 		return input_options
-		
+
 	except Exception as e:
-		debug_log(f"Error reading input options file: {e}")
+		debug_log(f"Error reading input options from database: {e}")
 		return {}
 
 def get_column_widths(table_name):
 	"""Get column widths for different table types - Updated v2.0"""
 	widths = {
-		# Matches: 16 columns = 100%
-		'matches': ["10%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%"],
-		# Games: 11 columns = 100% 
-		'games': ["12%", "12%", "8%", "8%", "9%", "9%", "9%", "8%", "8%", "8%", "9%"],
-		# Plays: 14 columns = 100%
-		'plays': ["5%", "5%", "5%", "10%", "7%", "7%", "7%", "7%", "7%", "7%", "7%", "6%", "10%", "10%"],
-		# Drafts: 12 columns = 100%
-		'drafts': ["8%", "7%", "7%", "7%", "7%", "7%", "7%", "7%", "9%", "9%", "12%", "13%"],
-		# Picks: 18 columns - Compact widths to fit without horizontal scroll
-		'picks': ["13%", "1%", "1%", "1%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%"],
+		# Matches: 10 columns = 100% (compact display)
+		'matches': ["11%", "9%", "10%", "9%", "10%", "9%", "9%", "11%", "11%", "11%"],
+		# Games: 10 columns = 100% (combined mulligans)
+		'games': ["12%", "12%", "8%", "10%", "10%", "9%", "9%", "10%", "10%", "10%"],
+		# Plays: 12 columns = 100% (active/non-active hidden)
+		'plays': ["6%", "5%", "5%", "10%", "9%", "11%", "12%", "8%", "8%", "9%", "10%", "7%"],
+		# Drafts: 11 columns - wins/losses combined into Match Score
+		'drafts': ["9%", "9%", "9%", "9%", "9%", "9%", "9%", "9%", "8%", "9%", "11%"],
+		# Picks: 16 columns - Pick # includes overall
+		'picks': ["12%", "7%", "5%", "5%", "5%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%", "6%"],
 		# Ignored: 3 columns = 100%
 		'ignored': ["40%", "30%", "30%"]
 	}
 	return widths.get(table_name.lower(), [])
 
 def get_multifaced_cards():
-	"""Load multifaced cards from local file"""
-	multifaced_file = os.path.join('auxiliary', 'MULTIFACED_CARDS.txt')
-	
-	if not os.path.exists(multifaced_file):
-		debug_log(f"Multifaced cards file not found: {multifaced_file}")
-		return {}
-	
-	multifaced_cards = {}
+	"""Load multifaced cards from database table."""
+	multifaced_cards = {key: {} for key in ("SPLIT", "TRANSFORM", "DFC", "MDFC", "ADVENTURE")}
+
 	try:
-		with open(multifaced_file, 'r', encoding='utf-8', errors='ignore') as f:
-			lines = f.read().replace('\x00', '').split('\n')
-			
-		for i in lines:
-			if i.isupper():
-				multifaced_cards[i] = {}
-				last = i
-			if ' // ' in i:
-				multifaced_cards[last][i.split(' // ')[0]] = i.split(' // ')[1]
-		
-		debug_log(f"Loaded {len(multifaced_cards)} multifaced card categories from local file")
+		rows = MultifacedCard.query.order_by(
+			MultifacedCard.mult_type,
+			MultifacedCard.front_nm,
+		).all()
+		for row in rows:
+			card_map = multifaced_cards.setdefault(row.mult_type, {})
+			card_map[row.front_nm] = row.back_nm
+
+		debug_log(f"Loaded {len(rows)} multifaced cards from database table")
 		return multifaced_cards
-		
+
 	except Exception as e:
-		debug_log(f"Error reading multifaced cards file: {e}")
+		debug_log(f"Error reading multifaced cards from database: {e}")
 		return {}
 def get_all_decks():
-	"""Load all decks from local pickle file"""
-	decks_file = os.path.join('auxiliary', 'ALL_DECKS')
-	
-	if not os.path.exists(decks_file):
-		debug_log(f"All decks file not found: {decks_file}")
-		return {}
-	
+	"""Load all decks from database table with legacy in-memory structure."""
 	try:
-		with open(decks_file, 'rb') as f:
-			all_decks = pickle.load(f)
-		
-		debug_log(f"Loaded {len(all_decks) if isinstance(all_decks, dict) else 'unknown'} decks from local file")
+		rows = AllDeck.query.order_by(
+			AllDeck.yyyy_mm,
+			AllDeck.deck_nm,
+			AllDeck.format_nm,
+		).all()
+
+		all_decks = {}
+		for row in rows:
+			cards = row.deck_lst if isinstance(row.deck_lst, list) else []
+			entry = [row.deck_nm, row.format_nm, set(str(card) for card in cards)]
+			all_decks.setdefault(row.yyyy_mm, []).append(entry)
+
+		debug_log(f"Loaded {len(all_decks)} deck months from database table")
 		return all_decks
-		
+
 	except Exception as e:
-		debug_log(f"Error reading all decks file: {e}")
+		debug_log(f"Error reading all decks from database: {e}")
 		return {}
 def build_cards_played_db(uid):
 	#debug_log(f"🔍 BUILD CARDS PLAYED DEBUG: Building cards played database for user {uid}")
@@ -358,14 +366,24 @@ def update_draft_win_loss(uid, username, draft_id):
 		except:
 			db.session.rollback()
 def get_logtype_from_filename(filename):
-	if ('Match_GameLog_' in filename) and (len(filename) >= 30) and ('.dat' in filename):
+	# GameLog example: contains Match_GameLog_ and ends with .dat
+	if ('Match_GameLog_' in filename) and filename.lower().endswith('.dat') and len(filename) >= 30:
 		return 'GameLog'
-	if (filename.count('.') != 3) or (filename.count('-') != 4) or ('.txt' not in filename):
+
+	# DraftLog heuristic must mirror zip_mtgo_logs.py
+	if (filename.count('.') != 3) or (filename.count('-') != 4) or (not filename.lower().endswith('.txt')):
 		return 'NA'
-	elif (len(filename.split('-')[1].split('.')[0]) != 4) or (len(filename.split('-')[2]) != 4):
+	split_dash = filename.split('-')
+	try:
+		# Year part (from date YYYY.MM.DD) must be 4 digits;
+		# next segment is numeric ID (allow 4-6 digits)
+		year_part = split_dash[1].split('.')[0]
+		id_part = split_dash[2]
+		if len(year_part) != 4 or not (4 <= len(id_part) <= 6 and id_part.isdigit()):
+			return 'NA'
+	except Exception:
 		return 'NA'
-	else:
-		return 'DraftLog'
+	return 'DraftLog'
 
 @shared_task(bind=True, base=AbortableTask)
 def process_logs(self, data):
@@ -684,6 +702,7 @@ def process_logs(self, data):
 											p2_wins=match[12],
 											match_winner=match[13],
 											format=match[14],
+											limited_format=match[15],
 											match_type=match[16],
 											date=match[17],
 											proc_dt=proc_dt)
@@ -994,6 +1013,7 @@ def process_revisions_from_app(self, data):
 					existing_match.p2_wins = match[12]
 					existing_match.match_winner = match[13]
 					existing_match.format = match[14]
+					existing_match.limited_format = match[15]
 					existing_match.match_type = match[16]
 					existing_match.proc_dt = proc_dt
 					merged_match = db.session.merge(existing_match)
@@ -1176,6 +1196,7 @@ def process_from_app(self, data):
 					existing_match.p2_wins = match[12]
 					existing_match.match_winner = match[13]
 					existing_match.format = match[14]
+					existing_match.limited_format = match[15]
 					existing_match.match_type = match[16]
 					existing_match.proc_dt = proc_dt
 					merged_match = db.session.merge(existing_match)
@@ -1199,6 +1220,7 @@ def process_from_app(self, data):
 									p2_wins=match[12],
 									match_winner=match[13],
 									format=match[14],
+									limited_format=match[15],
 									match_type=match[16],
 									date=match[17],
 									proc_dt=proc_dt)
@@ -1637,7 +1659,7 @@ def reprocess_logs(self, data):
 							existing.match_winner = match[13]
 							existing.date = match[17]
 							existing.proc_dt = proc_dt
-							# Preserve user-revised columns: draft_id, p1_arch, p1_subarch, p2_arch, p2_subarch, format, match_type
+							# Preserve user-revised columns: draft_id, p1_arch, p1_subarch, p2_arch, p2_subarch, format, limited_format, match_type
 							counts['matches_updated'] += 1
 						else:
 							new_match = Match(uid=uid,
@@ -1656,6 +1678,7 @@ def reprocess_logs(self, data):
 											p2_wins=match[12],
 											match_winner=match[13],
 											format=match[14],
+											limited_format=match[15],
 											match_type=match[16],
 											date=match[17],
 											proc_dt=proc_dt)
@@ -2151,34 +2174,6 @@ def change_pwd():
 		login_user(user, remember=True)
 		flash(f'Password updated successfully.', category='success')
 		return redirect(url_for('views.profile'))
-
-@views.route('/upload', methods=['POST'])
-@login_required
-def upload():
-	def extract_zip_file(zip_ref, path):
-		for member in zip_ref.infolist():
-			extracted_file_path = os.path.join(path, member.filename)
-			if os.path.exists(extracted_file_path):
-				existing_mtime = os.path.getmtime(extracted_file_path)
-				new_mtime = time.mktime(member.date_time + (0, 0, -1))
-				if new_mtime > existing_mtime:
-					continue
-			zip_ref.extract(member, path)
-			timestamp = time.mktime(member.date_time + (0, 0, -1))
-			os.utime(extracted_file_path, (timestamp, timestamp))
-
-	if not os.path.exists('upload'+'\\'+str(1)):
-		os.makedirs('upload'+'\\'+str(1))
-
-	uploaded_file = request.files['file']
-	temp_location = 'temp.zip'
-	uploaded_file.save(temp_location)
-
-	with zipfile.ZipFile(temp_location, 'r') as zip_ref:
-		extract_zip_file(zip_ref, 'upload'+'\\'+str(1))
-	os.remove(temp_location)
-
-	return 'File uploaded and extracted successfully!'
 
 @views.route('/')
 def index():
@@ -4741,7 +4736,7 @@ def generate_game_data_dashboard(filtered_query, filters):
 		game_performance_table = {
 			'title': 'Game Performance Statistics',
 			'headers': ['<center></center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Win%</center>', '<center>Mulls/Game</center>', '<center>Opp Mulls/Game</center>', '<center>Turns/Game</center>'],
-			'height': '416px',
+			'height': '420px',
 			'rows': table_rows,
 			'columnWidths': ['16%', '14%', '14%', '14%', '14%', '14%', '14%']  # Option 1: Custom widths
 		}
@@ -5150,6 +5145,20 @@ def api_table_drill(table_name, row_id, game_num):
 		debug_log(f"Error in api_table_drill: {str(e)}")
 		return jsonify({'error': 'Internal server error'}), 500
 
+@views.route('/api/card-image', methods=['GET'])
+@login_required
+def api_card_image():
+	"""Resolve a card name to a Scryfall image URL."""
+	card_name = (request.args.get('name') or '').strip()
+	if not card_name:
+		return jsonify({'image_url': None, 'card_name': ''}), 200
+	try:
+		image_url = get_card_image_url(card_name)
+		return jsonify({'image_url': image_url, 'card_name': card_name}), 200
+	except Exception as e:
+		debug_log(f"Error in api_card_image for '{card_name}': {str(e)}")
+		return jsonify({'image_url': None, 'card_name': card_name}), 200
+
 @views.route('/api/match/<match_id>/details')
 @login_required
 def api_match_details(match_id):
@@ -5179,6 +5188,8 @@ def api_match_details(match_id):
 		if cards:
 			cards_data = cards.as_dict()
 			response_data.update({
+				'casting_player1': cards_data.get('casting_player1'),
+				'casting_player2': cards_data.get('casting_player2'),
 				'lands1': cards_data.get('lands1', []),
 				'lands2': cards_data.get('lands2', []),
 				'plays1': cards_data.get('plays1', []),

@@ -4,7 +4,7 @@ This guide will help you set up and run the MTGO-DB Flask application locally fo
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10 - 3.12
 - pip (Python package installer)
 - Redis (for background tasks)
 
@@ -12,11 +12,11 @@ This guide will help you set up and run the MTGO-DB Flask application locally fo
 
 1. **Run the setup script:**
    ```bash
-   python setup_local.py
+   python local-dev/setup_local.py
    ```
 
 2. **Update configuration:**
-   Edit `local/local_config.cfg` with your settings (see Configuration section below)
+   Edit `local-dev/local_config.cfg` with your settings (see Configuration section below)
 
 3. **Start the application:**
    ```bash
@@ -33,7 +33,7 @@ If you prefer to set up manually:
 ### 1. Install Dependencies
 
 ```bash
-pip install -r local/requirements-local.txt
+python -m pip install -r local-dev/requirements-local.txt
 ```
 
 ### 2. Install Redis
@@ -58,13 +58,13 @@ sudo systemctl start redis
 ### 3. Create Directories
 
 ```bash
-mkdir local/data/uploads
-mkdir local/data/logs
+mkdir local-dev/data/uploads
+mkdir local-dev/data/logs
 ```
 
 ### 4. Configure the Application
 
-Edit `local/local_config.cfg` with your settings:
+Edit `local-dev/local_config.cfg` with your settings:
 
 ```ini
 # Email settings (for testing, you can use Mailtrap.io)
@@ -145,7 +145,7 @@ To test email functionality:
 ### File Upload Testing
 
 The app supports file uploads:
-1. Files are stored in the `local/data/uploads/` directory locally
+1. Files are stored in the `local-dev/data/uploads/` directory locally
 2. In production, files are stored in Azure Blob Storage
 
 ### Background Tasks
@@ -234,7 +234,7 @@ MTGO-DB/
 ├── static/                  # Static files and configs
 │   └── config.cfg          # Production configuration
 ├── templates/              # HTML templates
-└── local/                  # Local development files
+└── local-dev/              # Local development files
     ├── README.md           # Local development guide
     ├── local_config.cfg    # Local configuration
     ├── requirements-local.txt # Local dependencies

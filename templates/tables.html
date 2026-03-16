@@ -34,11 +34,11 @@
           {% if table_name.lower() == 'matches' %}
           <div class="table-header-right">
             <div class="control-buttons">
-              <button disabled id="ReviseButton" type="button" class="button secondary">
+              <button disabled id="ReviseButton" type="button" class="button secondary header-action-btn">
                 <i class="fas fa-edit"></i>
                 Revise Row(s)
               </button>
-              <button disabled id="RemoveButton" type="button" class="button danger">
+              <button disabled id="RemoveButton" type="button" class="button danger header-action-btn">
                 <i class="fas fa-trash"></i>
                 Remove Row(s)
               </button>
@@ -47,7 +47,7 @@
           {% elif table_name.lower() in ['games', 'plays', 'picks'] %}
           <div class="table-header-right">
             <div class="control-buttons">
-              <button id="BackButton" type="button" class="button secondary" onclick="navigateBack()">
+              <button id="BackButton" type="button" class="button secondary header-action-btn" onclick="navigateBack()">
                 <i class="fas fa-arrow-left"></i>
                 Back
               </button>
@@ -56,7 +56,7 @@
           {% elif table_name.lower() in ['ignored'] %}
           <div class="table-header-right">
             <div class="control-buttons">
-              <button id="RemoveIgnoredButton" type="button" class="button primary" data-bs-toggle="modal" data-bs-target="#ReviseIgnoredModal">
+              <button id="RemoveIgnoredButton" type="button" class="button primary header-action-btn" data-bs-toggle="modal" data-bs-target="#ReviseIgnoredModal">
                 <i class="fas fa-undo"></i>
                 Unignore Match
               </button>
@@ -94,35 +94,14 @@
         {% endif %}
       </div>
 
-      <div class="table-wrapper fixed-table-width">
+      <div class="table-wrapper fixed-table-width {% if table_name.lower() != 'picks' %}fixed-table-height{% endif %}">
         <table class="modern-table">
-          {% set header_width_classes = None %}
-          {% if table_name.lower() == 'matches' %}
-            {% set header_width_classes = ['col-width-10','col-width-6','col-width-6','col-width-6','col-width-6','col-width-6','col-width-6','col-width-6','col-width-6','col-width-6','col-width-6','col-width-6','col-width-6','col-width-6','col-width-6','col-width-6'] %}
-          {% elif table_name.lower() == 'games' %}
-            {% set header_width_classes = ['col-width-12','col-width-12','col-width-6','col-width-10','col-width-10','col-width-8','col-width-8','col-width-8','col-width-8','col-width-8','col-width-10'] %}
-          {% elif table_name.lower() == 'plays' %}
-            {% set header_width_classes = ['col-width-5','col-width-5','col-width-5','col-width-12','col-width-8','col-width-10','col-width-12','col-width-5','col-width-5','col-width-5','col-width-10','col-width-5','col-width-6','col-width-6'] %}
-          {% elif table_name.lower() == 'drafts' %}
-            {% set header_width_classes = ['col-width-10','col-width-8','col-width-8','col-width-8','col-width-8','col-width-8','col-width-8','col-width-8','col-width-6','col-width-6','col-width-10','col-width-12'] %}
-          {% elif table_name.lower() == 'ignored' %}
-            {% set header_width_classes = ['col-width-20','col-width-15','col-width-65'] %}
-          {% elif table_name.lower() == 'picks' %}
-            {% set header_width_classes = ['col-width-20','col-width-6','col-width-6','col-width-8'] %}
-          {% endif %}
-          {% if header_width_classes %}
-          <colgroup>
-            {% for cls in header_width_classes %}
-            <col class="{{ cls }}">
-            {% endfor %}
-          </colgroup>
-          {% endif %}
           {% set table_headers = {
-            'matches': ['Draft ID', 'Player 1', 'P1 Archetype', 'P1 Subarchetype', 'Player 2', 'P2 Archetype', 'P2 Subarchetype', 'P1 Roll', 'P2 Roll', 'Roll Winner', 'P1 Wins', 'P2 Wins', 'Match Winner', 'Format', 'Match Type', 'Date'],
-            'games': ['Player 1', 'Player 2', 'Game#', 'P/D Selector', 'P/D Choice', 'On Play', 'On Draw', 'P1 Mulligans', 'P2 Mulligans', 'Turns', 'Game Winner'],
-            'plays': ['Game #', 'Play #', 'Turn #', 'Casting Player', 'Action', 'Primary Card', 'Target List', 'Opp Target', 'Self Target', 'Cards Drawn', 'Attacker List', 'Attackers', 'Active Player', 'Non-Active Player'],
-            'drafts': ['Hero', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6', 'Player 7', 'Player 8', 'Match Wins', 'Match Losses', 'Draft Format', 'Date'],
-            'picks': ['Card', 'Pack #', 'Pick #', 'Pick Overall', 'Available 1', 'Available 2', 'Available 3', 'Available 4', 'Available 5', 'Available 6', 'Available 7', 'Available 8', 'Available 9', 'Available 10', 'Available 11', 'Available 12', 'Available 13', 'Available 14'],
+            'matches': ['Draft ID', 'Player 1', 'P1 Deck', 'Player 2', 'P2 Deck', 'Die Roll', 'Match Score', 'Format', 'Match Type', 'Date'],
+            'games': ['Player 1', 'Player 2', 'Game#', 'P/D Selector', 'P/D Choice', 'On Play', 'On Draw', 'Mulligans', 'Turns', 'Game Winner'],
+            'plays': ['Game #', 'Play #', 'Turn #', 'Casting Player', 'Action', 'Primary Card', 'Target List', 'Opp Target', 'Self Target', 'Cards Drawn', 'Attacker List', 'Attackers'],
+            'drafts': ['Hero', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6', 'Player 7', 'Player 8', 'Match Score', 'Draft Format', 'Date'],
+            'picks': ['Card', 'Pick #', 'Card 1', 'Card 2', 'Card 3', 'Card 4', 'Card 5', 'Card 6', 'Card 7', 'Card 8', 'Card 9', 'Card 10', 'Card 11', 'Card 12', 'Card 13', 'Card 14'],
             'ignored': ['Match ID', 'Date Ignored', 'Reason']
           } %}
           <thead>
@@ -130,7 +109,7 @@
               {% if table_headers[table_name.lower()] %}
                 {% for header in table_headers[table_name.lower()] %}
                   {% if column_widths and loop.index0 < column_widths|length %}
-                    <th style="width: {{ column_widths[loop.index0] }}; min-width: {{ column_widths[loop.index0] }};">{{ header }}</th>
+                    <th width="{{ column_widths[loop.index0] }}">{{ header }}</th>
                   {% else %}
                     <th>{{ header }}</th>
                   {% endif %}
@@ -151,17 +130,11 @@
                 {% if table_name.lower() == 'matches' %}
                   <td>{{ row.draft_id }}</td>
                   <td>{{ row.p1 }}</td>
-                  <td>{{ row.p1_arch }}</td>
                   <td>{{ row.p1_subarch }}</td>
                   <td>{{ row.p2 }}</td>
-                  <td>{{ row.p2_arch }}</td>
                   <td>{{ row.p2_subarch }}</td>
-                  <td>{{ row.p1_roll }}</td>
-                  <td>{{ row.p2_roll }}</td>
-                  <td>{{ row.roll_winner }}</td>
-                  <td>{{ row.p1_wins }}</td>
-                  <td>{{ row.p2_wins }}</td>
-                  <td>{{ row.match_winner }}</td>
+                  <td>{{ row.p1_roll }} - {{ row.p2_roll }}</td>
+                  <td>{{ row.p1_wins }} - {{ row.p2_wins }}</td>
                   <td>{{ row.format }}</td>
                   <td>{{ row.match_type }}</td>
                   <td class="cell-date">{{ row.date }}</td>
@@ -173,8 +146,7 @@
                   <td>{{ row.pd_choice }}</td>
                   <td>{{ row.on_play }}</td>
                   <td>{{ row.on_draw }}</td>
-                  <td>{{ row.p1_mulls }}</td>
-                  <td>{{ row.p2_mulls }}</td>
+                  <td>{{ row.p1_mulls }} - {{ row.p2_mulls }}</td>
                   <td>{{ row.turns }}</td>
                   <td>{{ row.game_winner }}</td>
                 {% elif table_name.lower() == 'plays' %}
@@ -183,15 +155,13 @@
                   <td>{{ row.turn_num }}</td>
                   <td>{{ row.casting_player }}</td>
                   <td>{{ row.action }}</td>
-                  <td>{{ row.primary_card }}</td>
+                  <td class="play-primary-card-cell card-image-hover-cell">{{ row.primary_card }}</td>
                   <td>{{ row.target_list }}</td>
                   <td>{{ row.opp_target }}</td>
                   <td>{{ row.self_target }}</td>
                   <td>{{ row.cards_drawn }}</td>
                   <td>{{ row.attacker_list }}</td>
                   <td>{{ row.attackers }}</td>
-                  <td>{{ row.active_player }}</td>
-                  <td>{{ row.non_active_player }}</td>
                 {% elif table_name.lower() == 'drafts' %}
                   <td>{{ row.hero }}</td>
                   <td>{{ row.player2 }}</td>
@@ -201,15 +171,12 @@
                   <td>{{ row.player6 }}</td>
                   <td>{{ row.player7 }}</td>
                   <td>{{ row.player8 }}</td>
-                  <td>{{ row.match_wins }}</td>
-                  <td>{{ row.match_losses }}</td>
+                  <td>{{ row.match_wins }} - {{ row.match_losses }}</td>
                   <td>{{ row.draft_format }}</td>
                   <td class="cell-date">{{ row.date }}</td>
                 {% elif table_name.lower() == 'picks' %}
-                  <td class="cell-card">{{ row.card }}</td>
-                  <td>{{ row.pack_num }}</td>
-                  <td>{{ row.pick_num }}</td>
-                  <td>{{ row.pick_ovr }}</td>
+                  <td class="cell-card pick-main-card-cell">{{ row.card }}</td>
+                  <td>P{{ row.pack_num }}-P{{ row.pick_num }}-{{ row.pick_ovr }}</td>
                   <td>{{ row.avail1 }}</td>
                   <td>{{ row.avail2 }}</td>
                   <td>{{ row.avail3 }}</td>
@@ -246,8 +213,8 @@
       </div>
     </div>
 
-    <!-- Pagination Controls -->
     {% if page_num %}
+    <!-- Pagination Controls -->
     <div class="pagination-container">
       <div class="pagination-controls">
         <button id="PrevButton" type="button" class="button secondary pagination-btn" 
@@ -836,6 +803,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add title attribute with full text content to all data cells
     tableCells.forEach(cell => {
       const textContent = cell.textContent.trim();
+      if (cell.classList.contains('card-image-hover-cell')) {
+        cell.removeAttribute('title');
+        return;
+      }
       if (textContent) {
         cell.setAttribute('title', textContent);
       } else {

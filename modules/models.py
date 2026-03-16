@@ -1,6 +1,6 @@
 from modules.extensions import db
 from flask_login import UserMixin
-from sqlalchemy import ForeignKeyConstraint
+from sqlalchemy import ForeignKeyConstraint, CheckConstraint
 
 class Player(db.Model, UserMixin):
 	uid = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -36,6 +36,7 @@ class Match(db.Model):
 	p2_wins = db.Column(db.Integer)
 	match_winner = db.Column(db.String(2))
 	format = db.Column(db.String(20))
+	limited_format = db.Column(db.String(20))
 	match_type = db.Column(db.String(30))
 	date = db.Column(db.String(20))
 	proc_dt = db.Column(db.DateTime)
@@ -166,3 +167,31 @@ class TaskHistory(db.Model):
 	error_code = db.Column(db.String(50), nullable=True)	
 	def as_dict(self):
 		return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+class MultifacedCard(db.Model):
+	__tablename__ = 'multifaced_cards'
+	__table_args__ = (
+		CheckConstraint(
+			"mult_type IN ('SPLIT', 'TRANSFORM', 'DFC', 'MDFC', 'ADVENTURE')",
+			name='ck_multifaced_cards_mult_type',
+		),
+	)
+
+	front_nm = db.Column(db.String(50), primary_key=True)
+	back_nm = db.Column(db.String(50), primary_key=True)
+	mult_type = db.Column(db.String(20), primary_key=True, nullable=False)
+
+class InputOption(db.Model):
+	__tablename__ = 'input_options'
+
+	table_nm = db.Column(db.String(20), primary_key=True)
+	var_nm = db.Column(db.String(40), primary_key=True)
+	options_lst = db.Column(db.JSON, nullable=False)
+
+class AllDeck(db.Model):
+	__tablename__ = 'all_decks'
+
+	yyyy_mm = db.Column(db.String(7), primary_key=True)
+	deck_nm = db.Column(db.String(75), primary_key=True)
+	format_nm = db.Column(db.String(30), primary_key=True)
+	deck_lst = db.Column(db.JSON, nullable=False)

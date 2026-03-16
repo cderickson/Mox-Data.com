@@ -1,5 +1,6 @@
 from flask import Flask
 import os
+import sys
 from celery import Celery, Task
 import ssl
 from modules.models import Player, Match, Game, Play, Pick, Draft, GameActions, Removed, CardsPlayed
@@ -8,16 +9,22 @@ from flask_login import login_user, login_required, logout_user, current_user
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
-from modules.extensions import db, mail, login_manager
+from modules.extensions import db, mail, login_manager, migrate
 from modules.debug_routes import debug_bp
 
 DB_NAME = 'database.db'
 
 def make_celery(app):
+	class ContextTask(Task):
+		def __call__(self, *args, **kwargs):
+			with app.app_context():
+				return self.run(*args, **kwargs)
+
 	celery = Celery(
 		app.import_name,
 		backend=app.config['CELERY_RESULT_BACKEND'],
-		broker=app.config['CELERY_BROKER_URL']
+		broker=app.config['CELERY_BROKER_URL'],
+		task_cls=ContextTask
 	)
 	
 	# Celery configuration - use JSON only for safer serialization
@@ -50,12 +57,6 @@ def make_celery(app):
 		}
 	celery.conf.update(celery_config)
 
-	class ContextTask(celery.Task):
-		def __call__(self, *args, **kwargs):
-			with app.app_context():
-				return self.run(*args, **kwargs)
-
-	celery.Task = ContextTask
 	return celery
 
 def create_app():
@@ -124,8 +125,14 @@ def create_app():
 
 	from modules.models import Player
 
+	migrate.init_app(app, db)
+
 	with app.app_context():
-		db.create_all()
+		# Local/dev convenience: auto-create SQLite tables.
+		# Production schema changes should be applied through explicit migrations.
+		is_db_cli_command = 'db' in sys.argv
+		if env in ('development', 'local') and not is_db_cli_command:
+			db.create_all()
 
 	login_manager.login_view = 'views.login'
 	login_manager.init_app(app)

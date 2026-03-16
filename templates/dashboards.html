@@ -987,6 +987,23 @@ function ensureChartJsLoaded() {
 
 function renderCharts(charts) {
   ensureChartJsLoaded().then(() => {
+    const chartTextColor = '#000';
+    if (window.Chart && Chart.defaults) {
+      Chart.defaults.color = chartTextColor;
+    }
+    const bodyZoomRaw = parseFloat(getComputedStyle(document.body).zoom || '1');
+    const bodyZoom = Number.isFinite(bodyZoomRaw) && bodyZoomRaw > 0 ? bodyZoomRaw : 1;
+    const eventZoomFixPlugin = bodyZoom !== 1 ? {
+      id: 'eventZoomFixPlugin',
+      beforeEvent(chart, args) {
+        const evt = args && args.event;
+        if (!evt) return;
+        // Compensate pointer coordinates when CSS zoom is applied on body.
+        evt.x = evt.x / bodyZoom;
+        evt.y = evt.y / bodyZoom;
+      }
+    } : null;
+
     const palette = [
       '#0039A6', '#4F46E5', '#22C55E', '#EAB308', '#EF4444',
       '#06B6D4', '#A855F7', '#F97316', '#84CC16', '#0EA5E9'
@@ -1013,7 +1030,9 @@ function renderCharts(charts) {
           borderWidth: 2,
           tension: 0.25,
           fill: false,
-          pointRadius: 0,
+          pointRadius: 2,
+          pointHoverRadius: 5,
+          pointHitRadius: 10,
           spanGaps: true,
           showLine: true
         };
@@ -1030,14 +1049,14 @@ function renderCharts(charts) {
 
       const dualAxis = !!chart.dualAxis;
       const baseScales = dualAxis ? {
-        x: { title: { display: !!chart.xTitle, text: chart.xTitle || '', font: { weight: 'bold', size: 13 } } },
+        x: { title: { display: !!chart.xTitle, text: chart.xTitle || '', font: { weight: 'normal', size: 13 } } },
         y: { 
           type: 'linear',
           position: 'left',
           beginAtZero: chart.yBeginAtZero ?? true,
           min: chart.yMin ?? undefined,
           max: chart.yMax ?? undefined,
-          title: { display: !!chart.yTitle, text: chart.yTitle || '', font: { weight: 'bold', size: 13 } }
+          title: { display: !!chart.yTitle, text: chart.yTitle || '', font: { weight: 'normal', size: 13 } }
         },
         y1: { 
           type: 'linear',
@@ -1046,17 +1065,32 @@ function renderCharts(charts) {
           min: chart.y1Min ?? undefined,
           max: chart.y1Max ?? undefined,
           grid: { drawOnChartArea: false },
-          title: { display: !!chart.yRightTitle, text: chart.yRightTitle || '', font: { weight: 'bold', size: 13 } }
+          title: { display: !!chart.yRightTitle, text: chart.yRightTitle || '', font: { weight: 'normal', size: 13 } }
         }
       } : (isStacked ? {
-        x: { stacked: true, title: { display: !!chart.xTitle, text: chart.xTitle || '', font: { weight: 'bold', size: 13 } } },
-        y: { stacked: true, beginAtZero: true, title: { display: !!chart.yTitle, text: chart.yTitle || '', font: { weight: 'bold', size: 13 } } }
+        x: { stacked: true, title: { display: !!chart.xTitle, text: chart.xTitle || '', font: { weight: 'normal', size: 13 } } },
+        y: { stacked: true, beginAtZero: true, title: { display: !!chart.yTitle, text: chart.yTitle || '', font: { weight: 'normal', size: 13 } } }
       } : {
-        x: { title: { display: !!chart.xTitle, text: chart.xTitle || '', font: { weight: 'bold', size: 13 } } },
-        y: { beginAtZero: true, title: { display: !!chart.yTitle, text: chart.yTitle || '', font: { weight: 'bold', size: 13 } } }
+        x: { title: { display: !!chart.xTitle, text: chart.xTitle || '', font: { weight: 'normal', size: 13 } } },
+        y: { beginAtZero: true, title: { display: !!chart.yTitle, text: chart.yTitle || '', font: { weight: 'normal', size: 13 } } }
       });
 
+      // Force chart text to black and non-bold (except main chart title).
+      Object.values(baseScales).forEach(scale => {
+        if (!scale) return;
+        scale.ticks = { ...(scale.ticks || {}), color: chartTextColor };
+        scale.ticks.font = { ...(scale.ticks.font || {}), weight: 'normal' };
+        if (scale.title) {
+          scale.title = { ...scale.title, color: chartTextColor };
+        }
+      });
+
+      const hasLineDataset = datasets.some(ds => (ds.type || chart.type || 'bar') === 'line');
+      const interactionMode = hasLineDataset ? 'index' : 'nearest';
+      const interactionIntersect = hasLineDataset ? false : true;
+
       new Chart(ctx, {
+        plugins: eventZoomFixPlugin ? [eventZoomFixPlugin] : [],
         type: chart.type || 'bar',
         data: {
           labels: chart.data?.labels || [],
@@ -1065,33 +1099,68 @@ function renderCharts(charts) {
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          animation: {
+            duration: 750,
+            easing: 'easeOutCubic'
+          },
+          animations: {
+            x: { duration: 750, easing: 'easeOutCubic' },
+            y: { duration: 750, easing: 'easeOutCubic' },
+            colors: { duration: 750, easing: 'easeOutCubic' }
+          },
+          interaction: {
+            mode: interactionMode,
+            intersect: interactionIntersect
+          },
+          hover: {
+            mode: interactionMode,
+            intersect: interactionIntersect
+          },
+          tooltips: {
+            mode: interactionMode,
+            intersect: interactionIntersect
+          },
           // Fallback for Chart.js v2
           legend: {
             display: (typeof chart.legendDisplay !== 'undefined') ? !!chart.legendDisplay : true,
             position: 'right',
-            labels: { padding: 12 }
+            labels: { padding: 12, color: chartTextColor }
           },
           plugins: {
             legend: { 
               display: (typeof chart.legendDisplay !== 'undefined') ? !!chart.legendDisplay : true, 
               position: 'right',
               labels: {
-                padding: 12
+                padding: 12,
+                color: chartTextColor,
+                font: { weight: 'normal' }
               }
             },
             title: { 
               display: !!chart.chartTitle,
               text: chart.chartTitle || '',
-              font: { weight: 'bold', size: 16 },
+              font: { weight: 'bold', size: 18 },
+              color: chartTextColor,
               padding: { bottom: 6 }
             },
             subtitle: chart.chartSubtitle ? {
               display: true,
               text: chart.chartSubtitle,
-              font: { weight: 'bold', size: 12 },
-              color: (Chart && Chart.defaults && Chart.defaults.color) ? Chart.defaults.color : '#667',
+              font: { weight: 'normal', size: 14 },
+              color: chartTextColor,
               padding: { top: 2, bottom: 24 }
-            } : undefined
+            } : undefined,
+            tooltip: {
+              titleColor: chartTextColor,
+              bodyColor: chartTextColor,
+              footerColor: chartTextColor,
+              titleFont: { weight: 'normal' },
+              bodyFont: { weight: 'normal' },
+              footerFont: { weight: 'normal' },
+              backgroundColor: 'rgba(255, 255, 255, 0.96)',
+              borderColor: '#d1d5db',
+              borderWidth: 1
+            }
           },
           scales: baseScales
         }

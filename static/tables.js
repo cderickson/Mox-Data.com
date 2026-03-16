@@ -7,6 +7,9 @@ class TableManager {
     this.lastClickedRow = null;
     this.tableData = null;
     this.inputOptions = null;
+    this.cardImageCache = new Map();
+    this.cardImageTooltip = null;
+    this.activeCardCell = null;
     
     // DOM elements
     this.tableBody = document.querySelector('tbody');
@@ -50,6 +53,7 @@ class TableManager {
         }
         // We have pre-loaded data (drill-down mode), just set up interactions
         this.setupEventListeners();
+        this.setupCardImageHover();
         this.updateButtonStates();
         this.setupPaginationForPreloadedData();
         this.setupPaginationListeners();
@@ -59,6 +63,7 @@ class TableManager {
         
         // Setup event listeners
         this.setupEventListeners();
+        this.setupCardImageHover();
         
         // Update button states
         this.updateButtonStates();
@@ -151,12 +156,132 @@ class TableManager {
 
   createTableRow(row, rowId, index) {
     const columns = this.getColumnsForTable(row);
-    const columnHtml = columns.map(col => `<td class="text-center td-small">${col}</td>`).join('');
+    const columnHtml = columns.map((col, colIndex) => {
+      let extraClass = '';
+      if (this.tableName === 'picks' && colIndex === 0) {
+        extraClass = ' cell-card pick-main-card-cell card-image-hover-cell';
+      } else if (this.tableName === 'plays' && colIndex === 5) {
+        extraClass = ' play-primary-card-cell card-image-hover-cell';
+      }
+      return `<td class="text-center td-small${extraClass}">${col}</td>`;
+    }).join('');
     
     // Store essential data in data attributes for reliable access
     const dataAttrs = this.getDataAttributes(row);
     
     return `<tr class="jsTableRow" id="${rowId}" data-index="${index}" ${dataAttrs}>${columnHtml}</tr>`;
+  }
+
+  setupCardImageHover() {
+    if (!['picks', 'plays'].includes(this.tableName) || !this.tableBody || this.tableBody.dataset.cardHoverSetup === 'true') return;
+    this.tableBody.dataset.cardHoverSetup = 'true';
+    this.ensureCardImageTooltip();
+    const cardCellSelector = this.tableName === 'picks' ? '.pick-main-card-cell' : '.play-primary-card-cell';
+
+    this.tableBody.addEventListener('mouseover', (event) => {
+      const cardCell = event.target.closest(cardCellSelector);
+      if (!cardCell || !this.tableBody.contains(cardCell)) return;
+      this.showCardImageTooltip(cardCell, event);
+    });
+
+    this.tableBody.addEventListener('mousemove', (event) => {
+      if (!this.cardImageTooltip || this.cardImageTooltip.style.display !== 'block') return;
+      this.positionCardTooltip(event);
+    });
+
+    this.tableBody.addEventListener('mouseout', (event) => {
+      const leavingCell = event.target.closest(cardCellSelector);
+      if (!leavingCell) return;
+      const enteringCell = event.relatedTarget?.closest?.(cardCellSelector);
+      if (enteringCell === leavingCell) return;
+      this.hideCardImageTooltip();
+    });
+
+    this.tableBody.addEventListener('mouseleave', () => {
+      this.hideCardImageTooltip();
+    });
+  }
+
+  ensureCardImageTooltip() {
+    if (this.cardImageTooltip) return;
+    const tooltip = document.createElement('div');
+    tooltip.className = 'card-image-tooltip';
+    tooltip.innerHTML = `
+      <img class="card-image-tooltip-img" alt="Card image preview" />
+      <div class="card-image-tooltip-label"></div>
+    `;
+    document.body.appendChild(tooltip);
+    this.cardImageTooltip = tooltip;
+  }
+
+  async showCardImageTooltip(cardCell, event) {
+    const cardName = (cardCell.textContent || '').trim();
+    if (!cardName || cardName === 'NA') return;
+
+    this.activeCardCell = cardCell;
+    this.ensureCardImageTooltip();
+    const image = this.cardImageTooltip.querySelector('.card-image-tooltip-img');
+    const label = this.cardImageTooltip.querySelector('.card-image-tooltip-label');
+    label.textContent = cardName;
+
+    this.cardImageTooltip.style.display = 'block';
+    image.src = '/static/images/mtgback.jpg';
+    this.positionCardTooltip(event);
+
+    const imageUrl = await this.fetchCardImageUrl(cardName);
+    if (this.activeCardCell !== cardCell) return;
+    if (imageUrl) image.src = imageUrl;
+  }
+
+  hideCardImageTooltip() {
+    this.activeCardCell = null;
+    if (this.cardImageTooltip) {
+      this.cardImageTooltip.style.display = 'none';
+    }
+  }
+
+  positionCardTooltip(event) {
+    if (!this.cardImageTooltip) return;
+    const offset = 16;
+    const tooltipRect = this.cardImageTooltip.getBoundingClientRect();
+    let left = event.clientX + offset;
+    let top = event.clientY + offset;
+
+    if (left + tooltipRect.width > window.innerWidth - 8) {
+      left = event.clientX - tooltipRect.width - offset;
+    }
+    if (top + tooltipRect.height > window.innerHeight - 8) {
+      top = window.innerHeight - tooltipRect.height - 8;
+    }
+    if (left < 8) left = 8;
+    if (top < 8) top = 8;
+
+    this.cardImageTooltip.style.left = `${left}px`;
+    this.cardImageTooltip.style.top = `${top}px`;
+  }
+
+  async fetchCardImageUrl(cardName) {
+    const cacheKey = cardName.toLowerCase();
+    if (this.cardImageCache.has(cacheKey)) return this.cardImageCache.get(cacheKey);
+    try {
+      const response = await fetch(`/api/card-image?name=${encodeURIComponent(cardName)}`, {
+        headers: {
+          'X-Requested-By': 'MTGO-Tracker'
+        }
+      });
+      if (!response.ok) {
+        this.cardImageCache.set(cacheKey, null);
+        return null;
+      }
+      const payload = await response.json();
+      const imageUrl = payload?.image_url || null;
+      this.cardImageCache.set(cacheKey, imageUrl);
+      return imageUrl;
+    } catch (error) {
+      console.error('Error fetching card image:', error);
+      this.cardImageCache.set(cacheKey, null);
+      return null;
+    }
   }
   
   getDataAttributes(row) {
@@ -179,38 +304,60 @@ class TableManager {
   getColumnsForTable(row) {
     switch (this.tableName) {
       case 'matches':
+        {
+          const p1Roll = row.p1_roll ?? 'NA';
+          const p2Roll = row.p2_roll ?? 'NA';
+          const rollsCombined = `${p1Roll} - ${p2Roll}`;
+          const p1Wins = row.p1_wins ?? 'NA';
+          const p2Wins = row.p2_wins ?? 'NA';
+          const matchScore = `${p1Wins} - ${p2Wins}`;
         return [
-          row.draft_id, row.p1, row.p1_arch, row.p1_subarch,
-          row.p2, row.p2_arch, row.p2_subarch, row.p1_roll, row.p2_roll,
-          row.roll_winner, row.p1_wins, row.p2_wins, row.match_winner,
-          row.format, row.match_type, row.date
+          row.draft_id, row.p1, row.p1_subarch,
+          row.p2, row.p2_subarch, rollsCombined,
+          matchScore, row.format, row.match_type, row.date
         ];
+        }
       case 'games':
+        {
+          const p1Mulls = row.p1_mulls ?? 'NA';
+          const p2Mulls = row.p2_mulls ?? 'NA';
+          const mulligansCombined = `${p1Mulls} - ${p2Mulls}`;
         return [
           row.p1, row.p2, row.game_num, row.pd_selector,
-          row.pd_choice, row.on_play, row.on_draw, row.p1_mulls, row.p2_mulls,
+          row.pd_choice, row.on_play, row.on_draw, mulligansCombined,
           row.turns, row.game_winner
         ];
+        }
       case 'plays':
         return [
           row.game_num, row.play_num, row.turn_num, row.casting_player,
           row.action, row.primary_card, row.target1, row.target2, row.target3,
-          row.opp_target, row.self_target, row.cards_drawn, row.attackers,
-          row.active_player, row.non_active_player
+          row.opp_target, row.self_target, row.cards_drawn, row.attackers
         ];
       case 'drafts':
+        {
+          const matchWins = row.match_wins ?? 'NA';
+          const matchLosses = row.match_losses ?? 'NA';
+          const matchScore = `${matchWins} - ${matchLosses}`;
         return [
           row.hero, row.player2, row.player3, row.player4,
-          row.player5, row.player6, row.player7, row.player8, row.match_wins,
-          row.match_losses, row.format, row.date
+          row.player5, row.player6, row.player7, row.player8,
+          matchScore, row.format, row.date
         ];
+        }
       case 'picks':
+        {
+          const packNum = row.pack_num ?? 'NA';
+          const pickNum = row.pick_num ?? 'NA';
+          const pickOverall = row.pick_ovr ?? 'NA';
+          const pickCombined = `P${packNum}-P${pickNum}-${pickOverall}`;
         return [
-          row.card, row.pack_num, row.pick_num, row.pick_ovr, row.avail1,
+          row.card, pickCombined, row.avail1,
           row.avail2, row.avail3, row.avail4, row.avail5, row.avail6,
           row.avail7, row.avail8, row.avail9, row.avail10, row.avail11,
           row.avail12, row.avail13, row.avail14
         ];
+        }
       default:
         return Object.values(row);
     }
@@ -544,41 +691,130 @@ class TableManager {
     }
   }
 
-  async handleFormatChange(format) {
-    const p1ArchButton = document.getElementById('P1ArchButton');
-    const p2ArchButton = document.getElementById('P2ArchButton');
+  getDropdownValue(buttonId) {
+    const button = document.getElementById(buttonId);
+    if (!button) return null;
+    const span = button.querySelector('span');
+    if (span) return (span.textContent || '').trim();
+    return (button.textContent || '').trim();
+  }
+
+  setDropdownValue(buttonId, value) {
+    const button = document.getElementById(buttonId);
+    if (!button) return;
+    const span = button.querySelector('span');
+    if (span) {
+      span.textContent = value;
+    } else {
+      button.textContent = value;
+    }
+  }
+
+  getArchetypeOptions(includeLimited = false) {
+    const archetypes = (this.inputOptions['Archetypes'] || [])
+      .map(item => String(item))
+      .filter(item => item && item !== 'Limited');
+
+    if (includeLimited) archetypes.push('Limited');
+    archetypes.push('NA');
+
+    return [...new Set(archetypes)];
+  }
+
+  refreshArchetypeMenus(includeLimited = false) {
+    const archetypes = this.getArchetypeOptions(includeLimited);
+    this.populateDropdownMenu('P1ArchMenu', archetypes, 'showP1Arch');
+    this.populateDropdownMenu('P2ArchMenu', archetypes, 'showP2Arch');
+    this.populateDropdownMenu('P1ArchMenuMulti', archetypes, 'showP1ArchMulti');
+    this.populateDropdownMenu('P2ArchMenuMulti', archetypes, 'showP2ArchMulti');
+  }
+
+  getMatchTypeOptionsForFormat(format) {
+    const normalizedFormat = String(format || '').trim();
+    const boosterDraftFormats = new Set([
+      'Booster Draft',
+      'Cube',
+      ...(this.inputOptions['Booster Draft Formats'] || []),
+      ...(this.inputOptions['Cube Formats'] || [])
+    ]);
+    const sealedFormats = new Set(this.inputOptions['Sealed Formats'] || []);
+    const constructedFormats = new Set(this.inputOptions['Constructed Formats'] || []);
+
+    let matchTypes = [];
+    if (boosterDraftFormats.has(normalizedFormat)) {
+      matchTypes = this.inputOptions['Booster Draft Match Types'] || [];
+    } else if (sealedFormats.has(normalizedFormat) || normalizedFormat === 'Sealed Deck') {
+      matchTypes = this.inputOptions['Sealed Match Types'] || [];
+    } else if (constructedFormats.has(normalizedFormat)) {
+      matchTypes = this.inputOptions['Constructed Match Types'] || [];
+    } else {
+      // Unknown/NA format: show all available match type options
+      matchTypes = [
+        ...(this.inputOptions['Constructed Match Types'] || []),
+        ...(this.inputOptions['Booster Draft Match Types'] || []),
+        ...(this.inputOptions['Sealed Match Types'] || [])
+      ];
+    }
+
+    return [...new Set([...matchTypes.map(item => String(item)), 'NA'])];
+  }
+
+  refreshMatchTypeMenu(format, isMultiModal = false, forceResetToNA = false) {
+    const matchTypeMenuId = isMultiModal ? 'MatchTypeMenuMulti' : 'MatchTypeMenu';
+    const matchTypeButtonId = isMultiModal ? 'MatchTypeButtonMulti' : 'MatchTypeButton';
+    const clickHandler = isMultiModal ? 'showMatchTypeMulti' : 'showMatchType';
+
+    const matchTypeOptions = this.getMatchTypeOptionsForFormat(format);
+    this.populateDropdownMenu(matchTypeMenuId, matchTypeOptions, clickHandler);
+
+    const currentValue = this.getDropdownValue(matchTypeButtonId);
+    const shouldReset = forceResetToNA || !matchTypeOptions.includes(currentValue);
+    if (shouldReset) {
+      this.setDropdownValue(matchTypeButtonId, 'NA');
+    }
+  }
+
+  async handleFormatChange(format, isMultiModal = false, forceResetMatchType = false) {
+    const p1ArchButtonId = isMultiModal ? 'P1ArchButtonMulti' : 'P1ArchButton';
+    const p2ArchButtonId = isMultiModal ? 'P2ArchButtonMulti' : 'P2ArchButton';
+    const p1ArchButton = document.getElementById(p1ArchButtonId);
+    const p2ArchButton = document.getElementById(p2ArchButtonId);
 
     // Ensure input options are loaded
     await this.loadInputOptions();
     if (!this.inputOptions) return;
 
-    if (this.inputOptions['Limited Formats']?.includes(format)) {
+    const isLimitedFormat = this.inputOptions['Limited Formats']?.includes(format);
+    this.refreshArchetypeMenus(isLimitedFormat);
+    this.refreshMatchTypeMenu(format, isMultiModal, forceResetMatchType);
+
+    if (isLimitedFormat) {
       // Limited format
       if (p1ArchButton) {
         p1ArchButton.disabled = true;
-        const span = p1ArchButton.querySelector('span');
-        if (span) {
-          span.textContent = 'Limited';
-        } else {
-          p1ArchButton.textContent = 'Limited';
-        }
+        this.setDropdownValue(p1ArchButtonId, 'Limited');
       }
       if (p2ArchButton) {
         p2ArchButton.disabled = true;
-        const span = p2ArchButton.querySelector('span');
-        if (span) {
-          span.textContent = 'Limited';
-        } else {
-          p2ArchButton.textContent = 'Limited';
-        }
+        this.setDropdownValue(p2ArchButtonId, 'Limited');
       }
     } else {
       // Constructed format
       if (p1ArchButton) {
+        const currentValue = this.getDropdownValue(p1ArchButtonId);
+        const wasDisabled = p1ArchButton.disabled;
         p1ArchButton.disabled = false;
+        if (wasDisabled || currentValue === 'Limited') {
+          this.setDropdownValue(p1ArchButtonId, 'NA');
+        }
       }
       if (p2ArchButton) {
+        const currentValue = this.getDropdownValue(p2ArchButtonId);
+        const wasDisabled = p2ArchButton.disabled;
         p2ArchButton.disabled = false;
+        if (wasDisabled || currentValue === 'Limited') {
+          this.setDropdownValue(p2ArchButtonId, 'NA');
+        }
       }
     }
   }
@@ -612,6 +848,8 @@ class TableManager {
 
   async showReviseModal() {
     await this.populateDropdownMenus();
+    const currentFormat = this.getDropdownValue('FormatButton') || 'NA';
+    await this.handleFormatChange(currentFormat, false, false);
     const modal = document.getElementById('ReviseModal');
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
@@ -622,6 +860,7 @@ class TableManager {
     
     // Reset multi-modal dropdowns/inputs to default 'NA'
     this.resetMultiModalFields();
+    await this.handleFormatChange('NA', true);
 
     // Initialize field container visibility (default is P1 Deck)
     this.initializeMultiModalFields();
@@ -683,14 +922,7 @@ class TableManager {
     if (!this.inputOptions) return;
 
     // Populate archetype dropdowns
-    const archetypes = [
-      ...(this.inputOptions['Archetypes'] || []),
-      'NA'
-    ];
-    this.populateDropdownMenu('P1ArchMenu', archetypes, 'showP1Arch');
-    this.populateDropdownMenu('P2ArchMenu', archetypes, 'showP2Arch');
-    this.populateDropdownMenu('P1ArchMenuMulti', archetypes, 'showP1ArchMulti');
-    this.populateDropdownMenu('P2ArchMenuMulti', archetypes, 'showP2ArchMulti');
+    this.refreshArchetypeMenus(false);
 
     // Populate format dropdowns
     const allFormats = [
@@ -1047,15 +1279,16 @@ function showP2Arch(item) {
 function showFormat(item) { 
   const button = document.getElementById("FormatButton");
   const span = button.querySelector('span');
+  const selectedFormat = item.textContent?.trim() || item.innerText?.trim() || 'NA';
   if (span) {
-    span.textContent = item.textContent;
+    span.textContent = selectedFormat;
   } else {
-    button.innerHTML = item.innerHTML;
+    button.textContent = selectedFormat;
   }
   closeAllDropdowns();
   if (tableManager) {
     // Fire and forget - don't block UI
-    tableManager.handleFormatChange(item.innerHTML).catch(err => 
+    tableManager.handleFormatChange(selectedFormat, false, true).catch(err => 
       console.error('Error handling format change:', err)
     );
   }
@@ -1081,8 +1314,20 @@ function showP2ArchMulti(item) {
   closeAllDropdowns();
 }
 function showFormatMulti(item) { 
-  document.getElementById("FormatButtonMulti").innerHTML = item.innerHTML;
+  const button = document.getElementById("FormatButtonMulti");
+  const selectedFormat = item.textContent?.trim() || item.innerText?.trim() || 'NA';
+  const span = button?.querySelector?.('span');
+  if (span) {
+    span.textContent = selectedFormat;
+  } else if (button) {
+    button.textContent = selectedFormat;
+  }
   closeAllDropdowns();
+  if (tableManager) {
+    tableManager.handleFormatChange(selectedFormat, true, true).catch(err =>
+      console.error('Error handling multi format change:', err)
+    );
+  }
 }
 function showMatchTypeMulti(item) { 
   document.getElementById("MatchTypeButtonMulti").innerHTML = item.innerHTML;

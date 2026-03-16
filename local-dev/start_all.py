@@ -9,7 +9,7 @@ import sys
 import time
 
 def main():
-    print("🚀 Starting MTGO-DB Development Environment...")
+    print("[START] Starting MTGO-DB Development Environment...")
     print("=" * 50)
     
     # Set environment for local development
@@ -19,7 +19,7 @@ def main():
     
     try:
         # Start Celery Worker
-        print("📦 Starting Celery Worker...")
+        print("[INFO] Starting Celery Worker...")
         celery_process = subprocess.Popen([
             sys.executable, 'local-dev/start_celery.py'
         ], cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,19 +27,19 @@ def main():
         time.sleep(2)  # Give it time to start
         
         # Start Flask App
-        print("🌐 Starting Flask App...")
+        print("[INFO] Starting Flask App...")
         flask_process = subprocess.Popen([
             sys.executable, 'app.py'
         ], cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         processes.append(('Flask App', flask_process))
         
         print("\n" + "=" * 50)
-        print("✅ All services started!")
+        print("[OK] All services started!")
         print("=" * 50)
-        print("🌐 Flask App:    http://localhost:8000")
-        print("📊 Task Monitor: http://localhost:8000/tasks")
+        print("[INFO] Flask App:    http://localhost:8000")
+        print("[INFO] Task Monitor: http://localhost:8000/tasks")
         print("=" * 50)
-        print("\n💡 Press Ctrl+C to stop all services")
+        print("\n[INFO] Press Ctrl+C to stop all services")
         
         # Wait for keyboard interrupt
         while True:
@@ -47,14 +47,14 @@ def main():
             # Check if any process has died
             for name, process in processes:
                 if process.poll() is not None:
-                    print(f"⚠️  {name} has stopped unexpectedly!")
+                    print(f"[WARN] {name} has stopped unexpectedly!")
                     
     except KeyboardInterrupt:
-        print("\n🛑 Stopping all services...")
+        print("\n[INFO] Stopping all services...")
         
         # Terminate all processes
         for name, process in processes:
-            print(f"🔄 Stopping {name}...")
+            print(f"[INFO] Stopping {name}...")
             try:
                 process.terminate()
                 process.wait(timeout=5)
@@ -62,12 +62,12 @@ def main():
                 process.kill()
                 process.wait()
             except Exception as e:
-                print(f"❌ Error stopping {name}: {e}")
+                print(f"[FAIL] Error stopping {name}: {e}")
         
-        print("✅ All services stopped!")
+        print("[OK] All services stopped!")
         
     except Exception as e:
-        print(f"❌ Error starting services: {e}")
+        print(f"[FAIL] Error starting services: {e}")
         return False
     
     return True
