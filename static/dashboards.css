@@ -157,10 +157,6 @@
     width: 90px;
 }
 
-/* Generate button now uses standard .button .primary class from base.css */
-
-
-
 /* Loading and Empty States */
 .empty-state {
     text-align: center;
@@ -437,6 +433,11 @@
     border-radius: 0;
     overflow: hidden;
     overflow-y: auto;
+    margin-bottom: 8px;
+}
+
+.table-body-no-padding .table-wrapper.no-table-bottom-margin {
+    margin-bottom: 0;
 }
 
 /* Only apply max-height when no dynamic height is set */

@@ -87,7 +87,6 @@ def _summarize_runtime_loaded_data():
 
     return summary
 
-
 @debug_bp.route('/db')
 def inspect_database():
     """Web interface for database inspection"""

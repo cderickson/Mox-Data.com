@@ -135,7 +135,15 @@
                   <td>{{ row.p2_subarch }}</td>
                   <td>{{ row.p1_roll }} - {{ row.p2_roll }}</td>
                   <td>{{ row.p1_wins }} - {{ row.p2_wins }}</td>
-                  <td>{{ row.format }}</td>
+                  <td>
+                    {% set fmt = row.format %}
+                    {% set lfmt = row.limited_format %}
+                    {% if (fmt in limited_formats) and lfmt and (lfmt != 'NA') %}
+                      {{ fmt }} - {{ lfmt }}
+                    {% else %}
+                      {{ fmt }}
+                    {% endif %}
+                  </td>
                   <td>{{ row.match_type }}</td>
                   <td class="cell-date">{{ row.date }}</td>
                 {% elif table_name.lower() == 'games' %}
@@ -338,6 +346,11 @@
                   <ul class="dropdown-menu" id="FormatMenu"></ul>
                 </div>
               </div>
+
+              <div class="form-group">
+                <label class="form-label">Limited Format</label>
+                <input type="text" class="form-input" id="Limited_Format" placeholder="NA" value="NA">
+              </div>
               
               <div class="form-group">
                 <label class="form-label">Match Type</label>
@@ -354,11 +367,11 @@
         
         <div class="modal-footer">
           <div >
-            <button type="button" class="button secondary" onclick="hideReviseModal()">
+            <button type="button" class="button secondary modal-action-btn" onclick="hideReviseModal()">
               <i class="fas fa-times" ></i>
               Cancel
             </button>
-            <button type="button" class="button primary" onclick="changeHiddenInputs()">
+            <button type="button" class="button primary modal-action-btn" onclick="changeHiddenInputs()">
               <i class="fas fa-check" ></i>
               Apply
             </button>
@@ -458,6 +471,11 @@
                       <ul class="dropdown-menu" id="FormatMenuMulti"></ul>
                     </div>
                   </div>
+
+                  <div class="form-group" >
+                    <label class="form-label">Limited Format</label>
+                    <input type="text" class="form-input" id="Limited_Format_Multi" placeholder="Limited_Format" value="NA">
+                  </div>
                 </div>
               </div>
 
@@ -480,11 +498,11 @@
         </div>
         <div class="modal-footer">
           <div >
-            <button type="button" class="button secondary" onclick="hideReviseMultiModal()">
+            <button type="button" class="button secondary modal-action-btn" onclick="hideReviseMultiModal()">
               <i class="fas fa-times" ></i>
               Cancel
             </button>
-            <button type="button" class="button primary" onclick="changeHiddenInputsMulti()">
+            <button type="button" class="button primary modal-action-btn" onclick="changeHiddenInputsMulti()">
               <i class="fas fa-check" ></i>
               Apply
             </button>
@@ -528,11 +546,11 @@
         </div>
         <div class="modal-footer">
           <div>
-            <button type="button" class="button danger" onclick="removeHidden('Remove')">
+            <button type="button" class="button danger modal-action-btn" onclick="removeHidden('Remove')">
               <i class="fas fa-trash"></i>
               Remove
             </button>
-            <button type="button" class="button danger" onclick="removeHidden('Ignore')">
+            <button type="button" class="button danger modal-action-btn" onclick="removeHidden('Ignore')">
               <i class="fas fa-eye-slash"></i>
               Remove & Ignore
             </button>
@@ -630,6 +648,14 @@ function resetReviseModalForm() {
   if (originalFormValues.p2_subarch !== undefined) {
     const p2SubarchInput = document.getElementById('P2_Subarch');
     if (p2SubarchInput) p2SubarchInput.value = originalFormValues.p2_subarch || 'NA';
+  }
+
+  if (originalFormValues.limited_format !== undefined) {
+    const limitedFormatInput = document.getElementById('Limited_Format');
+    if (limitedFormatInput) {
+      const value = String(originalFormValues.limited_format ?? '').trim();
+      limitedFormatInput.value = (!value || value.toUpperCase() === 'NA') ? 'NA' : value;
+    }
   }
 }
 

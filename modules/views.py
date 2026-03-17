@@ -27,8 +27,6 @@ from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignat
 import os
 import io
 import time
-import tempfile
-import shutil
 from modules import modo
 import pickle
 import math 
@@ -89,6 +87,8 @@ except Exception as e:
 
 s = URLSafeTimedSerializer(os.environ.get("URL_SAFETIMEDSERIALIZER", "dev-secret-key"))
 views = Blueprint('views', __name__)
+
+DEFAULT_PROFILE_IMAGE = 'Waterspout-Warden.png'
 
 def compute_sidebar_status_for_user(uid):
     """Compute sidebar enable/disable status for a given user id."""
@@ -181,7 +181,34 @@ def update_draft_wins(uid, username, draft_id):
 		db.session.rollback()
 		debug_log(f"Error committing draft ID update: {str(e)}")
 
-def get_input_options():
+REFERENCE_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+reference_data_cache_lock = threading.Lock()
+reference_data_cache = {
+	'input_options': {'data': None, 'loaded_at': 0.0},
+	'multifaced_cards': {'data': None, 'loaded_at': 0.0},
+	'all_decks': {'data': None, 'loaded_at': 0.0},
+}
+
+def _is_cache_entry_valid(entry):
+	if entry['data'] is None:
+		return False
+	return (time.time() - entry['loaded_at']) < REFERENCE_CACHE_TTL_SECONDS
+
+def _get_cached_reference_data(cache_key, loader, force_refresh=False):
+	with reference_data_cache_lock:
+		entry = reference_data_cache[cache_key]
+		if (not force_refresh) and _is_cache_entry_valid(entry):
+			return entry['data']
+
+	data = loader()
+
+	with reference_data_cache_lock:
+		reference_data_cache[cache_key]['data'] = data
+		reference_data_cache[cache_key]['loaded_at'] = time.time()
+
+	return data
+
+def _load_input_options_from_db():
 	"""Load input options from database table and emit legacy key names."""
 	legacy_key_by_var = {
 		"Match_Type_Constructed": "Constructed Match Types",
@@ -218,6 +245,10 @@ def get_input_options():
 		debug_log(f"Error reading input options from database: {e}")
 		return {}
 
+def get_input_options(force_refresh=False):
+	"""Get cached input options with a 7-day TTL."""
+	return _get_cached_reference_data('input_options', _load_input_options_from_db, force_refresh=force_refresh)
+
 def get_column_widths(table_name):
 	"""Get column widths for different table types - Updated v2.0"""
 	widths = {
@@ -236,7 +267,7 @@ def get_column_widths(table_name):
 	}
 	return widths.get(table_name.lower(), [])
 
-def get_multifaced_cards():
+def _load_multifaced_cards_from_db():
 	"""Load multifaced cards from database table."""
 	multifaced_cards = {key: {} for key in ("SPLIT", "TRANSFORM", "DFC", "MDFC", "ADVENTURE")}
 
@@ -255,7 +286,12 @@ def get_multifaced_cards():
 	except Exception as e:
 		debug_log(f"Error reading multifaced cards from database: {e}")
 		return {}
-def get_all_decks():
+
+def get_multifaced_cards(force_refresh=False):
+	"""Get cached multifaced cards with a 7-day TTL."""
+	return _get_cached_reference_data('multifaced_cards', _load_multifaced_cards_from_db, force_refresh=force_refresh)
+
+def _load_all_decks_from_db():
 	"""Load all decks from database table with legacy in-memory structure."""
 	try:
 		rows = AllDeck.query.order_by(
@@ -276,6 +312,10 @@ def get_all_decks():
 	except Exception as e:
 		debug_log(f"Error reading all decks from database: {e}")
 		return {}
+
+def get_all_decks(force_refresh=False):
+	"""Get cached all_decks with a 7-day TTL."""
+	return _get_cached_reference_data('all_decks', _load_all_decks_from_db, force_refresh=force_refresh)
 def build_cards_played_db(uid):
 	#debug_log(f"🔍 BUILD CARDS PLAYED DEBUG: Building cards played database for user {uid}")
 	
@@ -2337,11 +2377,12 @@ def load_revisions_from_app():
 @views.route('/table/<table_name>/<page_num>')
 @login_required
 def table(table_name, page_num):
+	limited_formats = get_input_options().get('Limited Formats', [])
 	try:
 		page_num = int(page_num)
 	except ValueError:
 		flash(f'ValueError: Probably typed the address incorrectly.', category='error')
-		return render_template('tables.html', user=current_user, table_name=table_name, column_widths=get_column_widths(table_name))
+		return render_template('tables.html', user=current_user, table_name=table_name, column_widths=get_column_widths(table_name), limited_formats=limited_formats)
 
 	if table_name.lower() == 'matches':
 		# Uncomment to display fully inverted Matches table.
@@ -2379,7 +2420,7 @@ def table(table_name, page_num):
 
 	page_num = int(page_num)
 
-	return render_template('tables.html', user=current_user, table_name=table_name, table=table, page_num=page_num, pages=pages, column_widths=get_column_widths(table_name))
+	return render_template('tables.html', user=current_user, table_name=table_name, table=table, page_num=page_num, pages=pages, column_widths=get_column_widths(table_name), limited_formats=limited_formats)
 
 @views.route('/ignored', methods=['GET'])
 @login_required
@@ -2946,167 +2987,155 @@ def input_options():
 @views.route('/export')
 @login_required
 def export():
-	# Create export directory in local-dev instead of system temp
-	export_base_dir = os.path.join('local-dev', 'data', 'excel')
-	os.makedirs(export_base_dir, exist_ok=True)
-	temp_dir = tempfile.mkdtemp(dir=export_base_dir)
-	
-	def delayed_cleanup(temp_dir, delay=30):
-		"""Clean up temp directory in background after download completes"""
-		time.sleep(delay)
-		try:
-			shutil.rmtree(temp_dir)
-			debug_log(f"Background cleanup successful: {temp_dir}")
-		except Exception as e:
-			debug_log(f"Background cleanup failed: {temp_dir} - {e}")
-	
+	acquired_export_lock = False
+	with export_locks_guard:
+		if current_user.uid in active_export_users:
+			flash('An export is already in progress for your account. Please wait for it to finish.', 'warning')
+			return redirect(url_for('views.profile'))
+		active_export_users.add(current_user.uid)
+		acquired_export_lock = True
+
 	try:
 		file_name = f'{current_user.email}_Tables.zip'
 		empty_tables = []
 		export_cnt = 0
-		created_files = []
+		zip_buffer = io.BytesIO()
 		
 		# Debug info
 		debug_log(f"Export started for user: {current_user.uid}, {current_user.username}")
 		
-		# Matches
-		try:
-			query = select(Match).where(
-				(Match.uid == current_user.uid) & 
-				(Match.p1 == current_user.username)
-			)
-			matches_df = pd.read_sql(query, db.engine)
-			debug_log(f"Matches query returned {len(matches_df)} rows")
-			
-			if not matches_df.empty:
-				matches_df = matches_df.drop('uid', axis=1)
-				matches_file = os.path.join(temp_dir, f'{current_user.email}_Matches.xlsx')
-				matches_df.to_excel(matches_file, index=False, engine='openpyxl')
-				created_files.append(matches_file)
-				export_cnt += 1
-			else:
+		def dataframe_to_excel_bytes(df: pd.DataFrame) -> bytes:
+			buffer = io.BytesIO()
+			with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+				df.to_excel(writer, index=False)
+			buffer.seek(0)
+			return buffer.getvalue()
+		
+		with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
+			# Matches
+			try:
+				query = select(Match).where(
+					(Match.uid == current_user.uid) & 
+					(Match.p1 == current_user.username)
+				)
+				matches_df = pd.read_sql(query, db.engine)
+				debug_log(f"Matches query returned {len(matches_df)} rows")
+				
+				if not matches_df.empty:
+					matches_df = matches_df.drop('uid', axis=1)
+					zipf.writestr(
+						f'{current_user.email}_Matches.xlsx',
+						dataframe_to_excel_bytes(matches_df)
+					)
+					export_cnt += 1
+				else:
+					empty_tables.append('Matches')
+			except Exception as e:
+				debug_log(f"Matches export error: {e}")
 				empty_tables.append('Matches')
-		except Exception as e:
-			debug_log(f"Matches export error: {e}")
-			empty_tables.append('Matches')
-		
-		# Games
-		try:
-			query = select(Game).where(
-				(Game.uid == current_user.uid) & 
-				(Game.p1 == current_user.username)
-			)
-			games_df = pd.read_sql(query, db.engine)
-			debug_log(f"Games query returned {len(games_df)} rows")
 			
-			if not games_df.empty:
-				games_df = games_df.drop('uid', axis=1)
-				games_file = os.path.join(temp_dir, f'{current_user.email}_Games.xlsx')
-				games_df.to_excel(games_file, index=False, engine='openpyxl')
-				created_files.append(games_file)
-				export_cnt += 1
-			else:
+			# Games
+			try:
+				query = select(Game).where(
+					(Game.uid == current_user.uid) & 
+					(Game.p1 == current_user.username)
+				)
+				games_df = pd.read_sql(query, db.engine)
+				debug_log(f"Games query returned {len(games_df)} rows")
+				
+				if not games_df.empty:
+					games_df = games_df.drop('uid', axis=1)
+					zipf.writestr(
+						f'{current_user.email}_Games.xlsx',
+						dataframe_to_excel_bytes(games_df)
+					)
+					export_cnt += 1
+				else:
+					empty_tables.append('Games')
+			except Exception as e:
+				debug_log(f"Games export error: {e}")
 				empty_tables.append('Games')
-		except Exception as e:
-			debug_log(f"Games export error: {e}")
-			empty_tables.append('Games')
-		
-		# Plays
-		try:
-			query = select(Play).where(Play.uid == current_user.uid)
-			plays_df = pd.read_sql(query, db.engine)
-			debug_log(f"Plays query returned {len(plays_df)} rows")
 			
-			if not plays_df.empty:
-				plays_df = plays_df.drop('uid', axis=1)
-				plays_file = os.path.join(temp_dir, f'{current_user.email}_Plays.xlsx')
-				plays_df.to_excel(plays_file, index=False, engine='openpyxl')
-				created_files.append(plays_file)
-				export_cnt += 1
-			else:
+			# Plays
+			try:
+				query = select(Play).where(Play.uid == current_user.uid)
+				plays_df = pd.read_sql(query, db.engine)
+				debug_log(f"Plays query returned {len(plays_df)} rows")
+				
+				if not plays_df.empty:
+					plays_df = plays_df.drop('uid', axis=1)
+					zipf.writestr(
+						f'{current_user.email}_Plays.xlsx',
+						dataframe_to_excel_bytes(plays_df)
+					)
+					export_cnt += 1
+				else:
+					empty_tables.append('Plays')
+			except Exception as e:
+				debug_log(f"Plays export error: {e}")
 				empty_tables.append('Plays')
-		except Exception as e:
-			debug_log(f"Plays export error: {e}")
-			empty_tables.append('Plays')
-		
-		# Picks
-		try:
-			query = select(Pick).where(Pick.uid == current_user.uid)
-			picks_df = pd.read_sql(query, db.engine)
-			debug_log(f"Picks query returned {len(picks_df)} rows")
 			
-			if not picks_df.empty:
-				picks_df = picks_df.drop('uid', axis=1)
-				picks_file = os.path.join(temp_dir, f'{current_user.email}_Picks.xlsx')
-				picks_df.to_excel(picks_file, index=False, engine='openpyxl')
-				created_files.append(picks_file)
-				export_cnt += 1
-			else:
+			# Picks
+			try:
+				query = select(Pick).where(Pick.uid == current_user.uid)
+				picks_df = pd.read_sql(query, db.engine)
+				debug_log(f"Picks query returned {len(picks_df)} rows")
+				
+				if not picks_df.empty:
+					picks_df = picks_df.drop('uid', axis=1)
+					zipf.writestr(
+						f'{current_user.email}_Picks.xlsx',
+						dataframe_to_excel_bytes(picks_df)
+					)
+					export_cnt += 1
+				else:
+					empty_tables.append('Picks')
+			except Exception as e:
+				debug_log(f"Picks export error: {e}")
 				empty_tables.append('Picks')
-		except Exception as e:
-			debug_log(f"Picks export error: {e}")
-			empty_tables.append('Picks')
-		
-		# Drafts
-		try:
-			query = select(Draft).where(Draft.uid == current_user.uid)
-			drafts_df = pd.read_sql(query, db.engine)
-			debug_log(f"Drafts query returned {len(drafts_df)} rows")
 			
-			if not drafts_df.empty:
-				drafts_df = drafts_df.drop('uid', axis=1)
-				drafts_file = os.path.join(temp_dir, f'{current_user.email}_Drafts.xlsx')
-				drafts_df.to_excel(drafts_file, index=False, engine='openpyxl')
-				created_files.append(drafts_file)
-				export_cnt += 1
-			else:
+			# Drafts
+			try:
+				query = select(Draft).where(Draft.uid == current_user.uid)
+				drafts_df = pd.read_sql(query, db.engine)
+				debug_log(f"Drafts query returned {len(drafts_df)} rows")
+				
+				if not drafts_df.empty:
+					drafts_df = drafts_df.drop('uid', axis=1)
+					zipf.writestr(
+						f'{current_user.email}_Drafts.xlsx',
+						dataframe_to_excel_bytes(drafts_df)
+					)
+					export_cnt += 1
+				else:
+					empty_tables.append('Drafts')
+			except Exception as e:
+				debug_log(f"Drafts export error: {e}")
 				empty_tables.append('Drafts')
-		except Exception as e:
-			debug_log(f"Drafts export error: {e}")
-			empty_tables.append('Drafts')
 		
 		# Check if any files were created
 		if export_cnt == 0:
-			shutil.rmtree(temp_dir)  # Clean up empty temp dir
 			debug_log("No data available for export - all tables empty")
 			return redirect(url_for('views.index'))
-		
-		# Create zip file
-		zip_path = os.path.join(temp_dir, file_name)
-		with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
-			for file_path in created_files:
-				# Add file to zip with just the filename (not the full path)
-				arcname = os.path.basename(file_path)
-				zipf.write(file_path, arcname)
-		
+
+		zip_buffer.seek(0)
 		debug_log(f"Export successful - created {export_cnt} files")
-		
-		# Schedule background cleanup after 30 seconds (plenty of time for download)
-		cleanup_thread = threading.Thread(
-			target=delayed_cleanup, 
-			args=(temp_dir, 30), 
-			daemon=True
-		)
-		cleanup_thread.start()
-		debug_log(f"Background cleanup scheduled for: {temp_dir}")
-		
-		# Send the file directly for download
+
 		return send_file(
-			zip_path,
+			zip_buffer,
 			as_attachment=True,
 			download_name=file_name,
 			mimetype='application/zip'
 		)
 		
 	except Exception as e:
-		# Clean up on error
-		try:
-			shutil.rmtree(temp_dir)
-		except:
-			pass
 		debug_log(f"Export error: {e}")
 		flash(f'Export failed: {str(e)}', 'error')
 		return redirect(url_for('views.index'))
+	finally:
+		if acquired_export_lock:
+			with export_locks_guard:
+				active_export_users.discard(current_user.uid)
 
 @views.route('/best_guess', methods=['POST'])
 @login_required
@@ -3209,6 +3238,22 @@ def best_guess():
 @views.route('/profile')
 @login_required
 def profile():
+	profile_images_dir = os.path.join(current_app.root_path, 'static', 'images', 'profile')
+	allowed_profile_ext = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
+	try:
+		profile_images = sorted(
+			[
+				name for name in os.listdir(profile_images_dir)
+				if os.path.isfile(os.path.join(profile_images_dir, name))
+				and os.path.splitext(name.lower())[1] in allowed_profile_ext
+			]
+		)
+	except Exception:
+		profile_images = []
+	if not profile_images:
+		profile_images = [DEFAULT_PROFILE_IMAGE]
+	selected_profile_image = current_user.profile_image if getattr(current_user, 'profile_image', None) in profile_images else profile_images[0]
+
 	def get_max_streak(table,streak_type):
 		max_streak = 0
 		max_streak_start_date = ''
@@ -3300,9 +3345,11 @@ def profile():
 			return f'Loss {p1_wins}-{p2_wins}'
 	
 	def format_match_format(fmt, limited_format='NA'):
-		if limited_format and limited_format != 'NA':
-			return f'{fmt}: {limited_format}'
-		return fmt
+		fmt_norm = (fmt or 'NA').strip() if isinstance(fmt, str) else str(fmt or 'NA')
+		lfmt_norm = (limited_format or '').strip() if isinstance(limited_format, str) else str(limited_format or '').strip()
+		if lfmt_norm and lfmt_norm.upper() != 'NA':
+			return f'{fmt_norm} - {lfmt_norm}'
+		return fmt_norm
 
 	def format_date(date_str):
 		"""Format date string to 'Month Day, Year' format"""
@@ -3339,28 +3386,54 @@ def profile():
 			'Deck': match.p1_subarch,
 			'Opp_Deck': match.p2_subarch,
 			'Match_Result': match_result(match.p1_wins, match.p2_wins),
-			'Match_Format': format_match_format(match.format, draft.draft_format if draft else 'NA')
+			'Match_Format': format_match_format(match.format, match.limited_format)
 		}
 		match_history_list.append(match_dict)
 
-	return render_template('profile.html', user=current_user, stats=stats_dict, match_history=match_history_list)
+	return render_template('profile.html', user=current_user, stats=stats_dict, match_history=match_history_list, profile_images=profile_images, selected_profile_image=selected_profile_image)
 
 @views.route('/edit_profile', methods=['POST'])
 @login_required
 def edit_profile():
 	#new_email = request.get_json()['ProfileEmailInputText']
 	#new_name = request.get_json()['ProfileNameInputText']
-	new_username = request.get_json()['ProfileUsernameInputText'].strip()
+	payload = request.get_json() or {}
+	new_username = (payload.get('ProfileUsernameInputText') or '').strip()
+	new_profile_image = (payload.get('ProfileImageInputValue') or '').strip()
+
+	profile_images_dir = os.path.join(current_app.root_path, 'static', 'images', 'profile')
+	allowed_profile_ext = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
+	try:
+		available_profile_images = {
+			name for name in os.listdir(profile_images_dir)
+			if os.path.isfile(os.path.join(profile_images_dir, name))
+			and os.path.splitext(name.lower())[1] in allowed_profile_ext
+		}
+	except Exception:
+		available_profile_images = {DEFAULT_PROFILE_IMAGE}
+	if not available_profile_images:
+		available_profile_images = {DEFAULT_PROFILE_IMAGE}
+	if new_profile_image not in available_profile_images:
+		new_profile_image = DEFAULT_PROFILE_IMAGE
 
 	user = Player.query.filter_by(uid=current_user.uid).first()
-	#user.email = new_email
-	user.username = new_username
+	current_username = user.username or ''
+	current_profile_image = user.profile_image or DEFAULT_PROFILE_IMAGE
+	next_username = new_username if new_username else current_username
+	next_profile_image = new_profile_image if new_profile_image else DEFAULT_PROFILE_IMAGE
+
+	if (next_username == current_username) and (next_profile_image == current_profile_image):
+		return jsonify({'success': True, 'username': current_username, 'profile_image': current_profile_image, 'updated': False})
+
+	user.username = next_username
+	user.profile_image = next_profile_image
 	try:
 		db.session.commit()
 	except:
 		db.session.rollback()
+		return jsonify({'success': False, 'error': 'Failed to update profile'}), 500
 	
-	return redirect(url_for('views.profile'))
+	return jsonify({'success': True, 'username': user.username, 'profile_image': user.profile_image, 'updated': True})
 
 @views.route('/filter_options', methods=['GET'])
 @login_required
@@ -4427,7 +4500,8 @@ def generate_opponent_analysis_dashboard(filtered_query, filters):
 						'headers': ['<center>Date</center>', '<center>Opponent</center>', '<center>Deck</center>', '<center>Opp. Deck</center>', '<center>Match Result</center>', '<center>Match Format</center>', '<center>Match Type</center>'],
 						'height': '400px',
 						'rows': [],
-						'columnWidths': ['16%', '14%', '14%', '14%', '14%', '14%', '14%']
+						'columnWidths': ['16%', '14%', '14%', '14%', '14%', '14%', '14%'],
+						'cssClass': 'no-table-bottom-margin'
 					}
 				],
 				'table_grids': [
@@ -4482,10 +4556,13 @@ def generate_opponent_analysis_dashboard(filtered_query, filters):
 			except ValueError:
 				return date_str
 		
+		limited_formats = set(get_input_options().get('Limited Formats', []))
 		def format_match_format(fmt, limited_format='NA'):
-			if limited_format and limited_format != 'NA':
-				return f'{fmt}: {limited_format}'
-			return fmt
+			fmt_norm = (fmt or 'NA').strip() if isinstance(fmt, str) else str(fmt or 'NA')
+			lfmt_norm = (limited_format or '').strip() if isinstance(limited_format, str) else str(limited_format or '').strip()
+			if fmt_norm in limited_formats and lfmt_norm and lfmt_norm.upper() != 'NA':
+				return f'{fmt_norm} - {lfmt_norm}'
+			return fmt_norm
 		
 		# Create opponent stats table
 		def escape_for_js(text):
@@ -4529,7 +4606,8 @@ def generate_opponent_analysis_dashboard(filtered_query, filters):
 			'headers': ['<center>Date</center>', '<center>Opponent</center>', '<center>Deck</center>', '<center>Opp. Deck</center>', '<center>Match Result</center>', '<center>Match Format</center>', '<center>Match Type</center>'],
 			'height': '400px',
 			'rows': [],
-			'columnWidths': ['16%', '14%', '14%', '14%', '14%', '14%', '14%']
+			'columnWidths': ['16%', '14%', '14%', '14%', '14%', '14%', '14%'],
+			'cssClass': 'no-table-bottom-margin'
 		}
 		
 		# Build recent match rows including draft format when present
@@ -4542,7 +4620,7 @@ def generate_opponent_analysis_dashboard(filtered_query, filters):
 				f"<center>{match.p1_subarch}</center>",
 				f"<center>{match.p2_subarch}</center>",
 				f"<center>{result_text}</center>",
-				f"<center>{format_match_format(match.format, draft.draft_format if draft else 'NA')}</center>",
+				f"<center>{format_match_format(match.format, match.limited_format)}</center>",
 				f"<center>{match.match_type}</center>",
 				row_style  # Add row styling as the 7th element
 			])
@@ -4736,9 +4814,10 @@ def generate_game_data_dashboard(filtered_query, filters):
 		game_performance_table = {
 			'title': 'Game Performance Statistics',
 			'headers': ['<center></center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Win%</center>', '<center>Mulls/Game</center>', '<center>Opp Mulls/Game</center>', '<center>Turns/Game</center>'],
-			'height': '420px',
+			'height': '425px',
 			'rows': table_rows,
-			'columnWidths': ['16%', '14%', '14%', '14%', '14%', '14%', '14%']  # Option 1: Custom widths
+			'columnWidths': ['16%', '14%', '14%', '14%', '14%', '14%', '14%'],  # Option 1: Custom widths
+			'cssClass': 'no-table-bottom-margin'
 		}
 
 		# Build stacked bar chart: Actions by Turn
@@ -4861,6 +4940,8 @@ def generate_game_data_dashboard(filtered_query, filters):
 
 # Initialize these variables as None - they'll be loaded on demand
 options = None
+active_export_users = set()
+export_locks_guard = threading.Lock()
 
 @views.route('/api/table-status', methods=['GET'])
 @login_required
@@ -4933,29 +5014,68 @@ all_decks = None
 scryfall_image_cache = {}
 
 def ensure_data_loaded():
-	"""Load global data if not already loaded"""
+	"""Load global data from cache (auto-refreshes when TTL expires)."""
 	global options, multifaced, all_decks
-	
-	if options is None:
-		try:
-			options = get_input_options()
-		except Exception as e:
-			debug_log(f"Warning: Could not load input options: {e}")
-			options = {}
-			
-	if multifaced is None:
-		try:
-			multifaced = get_multifaced_cards()
-		except Exception as e:
-			debug_log(f"Warning: Could not load multifaced cards: {e}")
-			multifaced = {}
-			
-	if all_decks is None:
-		try:
-			all_decks = get_all_decks()
-		except Exception as e:
-			debug_log(f"Warning: Could not load all decks: {e}")
-			all_decks = {}
+
+	try:
+		options = get_input_options()
+	except Exception as e:
+		debug_log(f"Warning: Could not load input options: {e}")
+		options = {}
+
+	try:
+		multifaced = get_multifaced_cards()
+	except Exception as e:
+		debug_log(f"Warning: Could not load multifaced cards: {e}")
+		multifaced = {}
+
+	try:
+		all_decks = get_all_decks()
+	except Exception as e:
+		debug_log(f"Warning: Could not load all decks: {e}")
+		all_decks = {}
+
+def refresh_reference_data_cache():
+	"""Force refresh all cached reference datasets and update globals."""
+	global options, multifaced, all_decks
+
+	options = get_input_options(force_refresh=True)
+	multifaced = get_multifaced_cards(force_refresh=True)
+	all_decks = get_all_decks(force_refresh=True)
+
+	return {
+		'input_options_categories': len(options) if isinstance(options, dict) else 0,
+		'multifaced_groups': len(multifaced) if isinstance(multifaced, dict) else 0,
+		'all_decks_months': len(all_decks) if isinstance(all_decks, dict) else 0,
+		'ttl_seconds': REFERENCE_CACHE_TTL_SECONDS,
+	}
+
+@views.route('/admin/refresh-reference-cache', methods=['POST'])
+@login_required
+def manual_refresh_reference_cache():
+	"""Manually refresh reference caches (admin-only)."""
+	admin_emails = {
+		email.strip().lower()
+		for email in os.environ.get('ADMIN_EMAILS', '').split(',')
+		if email.strip()
+	}
+	current_email = (current_user.email or '').strip().lower()
+	is_authorized = bool(getattr(current_user, 'is_admin', False)) or (current_email in admin_emails)
+
+	if not is_authorized:
+		return jsonify({'error': 'Forbidden'}), 403
+
+	try:
+		stats = refresh_reference_data_cache()
+		return jsonify({
+			'success': True,
+			'message': 'Reference caches refreshed.',
+			'refreshed_at_utc': datetime.datetime.utcnow().isoformat() + 'Z',
+			'stats': stats,
+		}), 200
+	except Exception as e:
+		debug_log(f"Error refreshing reference cache: {e}")
+		return jsonify({'error': 'Failed to refresh reference cache'}), 500
 
 def get_card_image_url(card_name: str):
     """Fetch a Scryfall image URL for a given exact card name with simple caching.
@@ -5241,6 +5361,7 @@ def api_match_revise():
 			p2_arch_in = clean(data.get('p2_arch'))
 			p2_subarch_in = clean(data.get('p2_subarch'))
 			format_in = clean(data.get('format'))
+			limited_format_in = clean(data.get('limited_format'))
 			match_type_in = clean(data.get('match_type'))
 
 			if match.p1 == current_user.username:
@@ -5255,6 +5376,7 @@ def api_match_revise():
 				if p2_subarch_in: match.p2_subarch = p1_subarch_in
 			
 			if format_in: match.format = format_in
+			if limited_format_in: match.limited_format = limited_format_in
 			if match_type_in: match.match_type = match_type_in
 		
 		try:
@@ -5343,8 +5465,11 @@ def api_match_revise_multi():
 			
 			elif field_to_change == 'Format':
 				fmt_in = clean(data.get('format'))
+				lfmt_in = clean(data.get('limited_format'))
 				if fmt_in:
 					match.format = fmt_in
+				if lfmt_in:
+					match.limited_format = lfmt_in
 				
 				# Handle Limited format archetype changes
 				if fmt_in in safe_options.get('Limited Formats', []):

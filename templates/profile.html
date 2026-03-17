@@ -41,28 +41,49 @@
         </div>
         
         <div class="section-card-body">
-          <div class="profile-info-grid">
-            
-            <!-- Email -->
-            <div class="profile-info-item">
-              <label class="profile-label">Email</label>
-              <div class="profile-value" id="ProfileEmailDisplay">
-                {{ user.email }}
+          <div class="profile-card-main">
+            <div class="profile-info-grid">
+              
+              <!-- Email -->
+              <div class="profile-info-item">
+                <label class="profile-label">Email</label>
+                <div class="profile-value" id="ProfileEmailDisplay">
+                  {{ user.email }}
+                </div>
+              </div>
+              
+              <!-- MTGO Username -->
+              <div class="profile-info-item">
+                <label class="profile-label">MTGO Username</label>
+                <div class="profile-value" id="ProfileUsernameDisplay">
+                  {{ user.username }}
+                </div>
+                <div class="profile-input" id="ProfileUsernameInput" style="display:none;">
+                  <input type="text" class="form-input" name="ProfileUsernameInputText" placeholder="Username" value="{{ user.username }}">
+                </div>
               </div>
             </div>
-            
-            <!-- MTGO Username -->
-            <div class="profile-info-item">
-              <label class="profile-label">MTGO Username</label>
-              <div class="profile-value" id="ProfileUsernameDisplay">
-                {{ user.username }}
-              </div>
-              <div class="profile-input" id="ProfileUsernameInput" style="display:none;">
-                <input type="text" class="form-input" name="ProfileUsernameInputText" placeholder="Username" value="{{ user.username }}">
+
+            <div class="profile-image-panel">
+              <div class="profile-image-box">
+                <img id="ProfileImagePreview" src="{{ url_for('static', filename='images/profile/' ~ selected_profile_image) }}" alt="Profile image">
+                <div class="profile-input" id="ProfileImageInput" style="display:none;">
+                  <select class="form-input" id="ProfileImageSelect">
+                    {% for img_name in profile_images %}
+                    {% set display_name = img_name.rsplit('.', 1)[0].replace('-', ' ') %}
+                    <option value="{{ img_name }}" title="{{ display_name }}" {% if img_name == selected_profile_image %}selected{% endif %}>{{ display_name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
               </div>
             </div>
-            
-          </div> 
+          </div>
+        </div>
+        <div class="profile-card-footer">
+          <a href="{{ url_for('views.export') }}" class="button secondary header-action-btn" onclick="handleExportClick(this); return false;">
+            <i class="fas fa-file-excel"></i>
+            Export Data
+          </a>
         </div>
       </div>
       

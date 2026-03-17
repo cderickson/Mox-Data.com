@@ -21,7 +21,10 @@ class TableManager {
 
   async initialize() {
     try {
-      // Input options will be loaded lazily when needed
+      // Matches table formatting needs limited format options.
+      if (this.tableName === 'matches') {
+        await this.loadInputOptions();
+      }
       
       // Check if table data is already loaded (drill-down mode)
       const existingRows = document.querySelectorAll('.modern-table tbody tr:not(.no-data-row)');
@@ -208,7 +211,6 @@ class TableManager {
     tooltip.className = 'card-image-tooltip';
     tooltip.innerHTML = `
       <img class="card-image-tooltip-img" alt="Card image preview" />
-      <div class="card-image-tooltip-label"></div>
     `;
     document.body.appendChild(tooltip);
     this.cardImageTooltip = tooltip;
@@ -221,8 +223,6 @@ class TableManager {
     this.activeCardCell = cardCell;
     this.ensureCardImageTooltip();
     const image = this.cardImageTooltip.querySelector('.card-image-tooltip-img');
-    const label = this.cardImageTooltip.querySelector('.card-image-tooltip-label');
-    label.textContent = cardName;
 
     this.cardImageTooltip.style.display = 'block';
     image.src = '/static/images/mtgback.jpg';
@@ -311,10 +311,11 @@ class TableManager {
           const p1Wins = row.p1_wins ?? 'NA';
           const p2Wins = row.p2_wins ?? 'NA';
           const matchScore = `${p1Wins} - ${p2Wins}`;
+          const formatDisplay = this.formatDisplayForMatch(row);
         return [
           row.draft_id, row.p1, row.p1_subarch,
           row.p2, row.p2_subarch, rollsCombined,
-          matchScore, row.format, row.match_type, row.date
+          matchScore, formatDisplay, row.match_type, row.date
         ];
         }
       case 'games':
@@ -361,6 +362,17 @@ class TableManager {
       default:
         return Object.values(row);
     }
+  }
+
+  formatDisplayForMatch(row) {
+    const formatValue = String(row.format ?? 'NA').trim() || 'NA';
+    const limitedFormatValue = String(row.limited_format ?? '').trim();
+    const limitedFormats = this.inputOptions?.['Limited Formats'] || [];
+
+    if (limitedFormats.includes(formatValue) && limitedFormatValue && limitedFormatValue.toUpperCase() !== 'NA') {
+      return `${formatValue} - ${limitedFormatValue}`;
+    }
+    return formatValue;
   }
 
   setupEventListeners() {
@@ -592,6 +604,11 @@ class TableManager {
   }
 
   async populateReviseModal(data) {
+    const normalizeToNA = (value) => {
+      const normalized = String(value ?? '').trim();
+      return (!normalized || normalized.toUpperCase() === 'NA') ? 'NA' : normalized;
+    };
+
     // Store original form values for reset functionality
     if (typeof originalFormValues !== 'undefined') {
       originalFormValues = {
@@ -600,6 +617,7 @@ class TableManager {
         p2_arch: data.p2_arch,
         p2_subarch: data.p2_subarch,
         format: data.format,
+        limited_format: data.limited_format,
         match_type: data.match_type
       };
     }
@@ -669,9 +687,11 @@ class TableManager {
     // Update text inputs
     const p1SubarchInput = document.getElementById('P1_Subarch');
     const p2SubarchInput = document.getElementById('P2_Subarch');
+    const limitedFormatInput = document.getElementById('Limited_Format');
     
     if (p1SubarchInput) p1SubarchInput.value = data.p1_subarch || 'NA';
     if (p2SubarchInput) p2SubarchInput.value = data.p2_subarch || 'NA';
+    if (limitedFormatInput) limitedFormatInput.value = normalizeToNA(data.limited_format);
 
     // Handle format-specific UI changes
     await this.handleFormatChange(data.format);
@@ -777,8 +797,10 @@ class TableManager {
   async handleFormatChange(format, isMultiModal = false, forceResetMatchType = false) {
     const p1ArchButtonId = isMultiModal ? 'P1ArchButtonMulti' : 'P1ArchButton';
     const p2ArchButtonId = isMultiModal ? 'P2ArchButtonMulti' : 'P2ArchButton';
+    const limitedFormatInputId = isMultiModal ? 'Limited_Format_Multi' : 'Limited_Format';
     const p1ArchButton = document.getElementById(p1ArchButtonId);
     const p2ArchButton = document.getElementById(p2ArchButtonId);
+    const limitedFormatInput = document.getElementById(limitedFormatInputId);
 
     // Ensure input options are loaded
     await this.loadInputOptions();
@@ -787,6 +809,16 @@ class TableManager {
     const isLimitedFormat = this.inputOptions['Limited Formats']?.includes(format);
     this.refreshArchetypeMenus(isLimitedFormat);
     this.refreshMatchTypeMenu(format, isMultiModal, forceResetMatchType);
+
+    // Limited Format text input is only editable when Format is a limited format.
+    if (limitedFormatInput) {
+      limitedFormatInput.disabled = !isLimitedFormat;
+      if (!isLimitedFormat) {
+        limitedFormatInput.value = 'NA';
+      } else if (!(limitedFormatInput.value || '').trim()) {
+        limitedFormatInput.value = 'NA';
+      }
+    }
 
     if (isLimitedFormat) {
       // Limited format
@@ -891,6 +923,11 @@ class TableManager {
     if (p1Sub) p1Sub.value = 'NA';
     const p2Sub = document.getElementById('P2_Subarch_Multi');
     if (p2Sub) p2Sub.value = 'NA';
+    const limitedFormatInput = document.getElementById('Limited_Format_Multi');
+    if (limitedFormatInput) {
+      limitedFormatInput.value = 'NA';
+      limitedFormatInput.disabled = true;
+    }
 
     // Reset format and match type buttons
     setText('FormatButtonMulti', 'NA');
@@ -1177,6 +1214,11 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Legacy function compatibility for existing modal forms
+function normalizeInputToNA(value) {
+  const normalized = String(value ?? '').trim();
+  return (!normalized || normalized.toUpperCase() === 'NA') ? 'NA' : normalized;
+}
+
 function changeHiddenInputs() {
   if (!tableManager) return;
   
@@ -1190,6 +1232,7 @@ function changeHiddenInputs() {
     p2_arch: document.getElementById('P2ArchButton')?.textContent,
     p2_subarch: document.getElementById('P2_Subarch')?.value,
     format: document.getElementById('FormatButton')?.textContent,
+    limited_format: normalizeInputToNA(document.getElementById('Limited_Format')?.value),
     match_type: document.getElementById('MatchTypeButton')?.textContent
   };
 
@@ -1225,6 +1268,7 @@ function changeHiddenInputsMulti() {
     p2_arch: getButtonText('P2ArchButtonMulti'),
     p2_subarch: document.getElementById('P2_Subarch_Multi')?.value?.trim(),
     format: getButtonText('FormatButtonMulti'),
+    limited_format: normalizeInputToNA(document.getElementById('Limited_Format_Multi')?.value),
     match_type: getButtonText('MatchTypeButtonMulti')
   };
 

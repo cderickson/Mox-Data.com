@@ -7,6 +7,7 @@ class Player(db.Model, UserMixin):
 	email = db.Column(db.String(150), unique=True)
 	pwd = db.Column(db.String(150))
 	username = db.Column(db.String(30))
+	profile_image = db.Column(db.String(100), default='Waterspout-Warden.png')
 	created_on = db.Column(db.DateTime)
 	is_admin = db.Column(db.Boolean, default=False)
 	is_confirmed = db.Column(db.Boolean, default=False)

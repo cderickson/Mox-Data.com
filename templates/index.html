@@ -20,27 +20,20 @@
 </div> -->
 
 <!-- Home Content -->
-<div class="home-container">
-  <!-- Header Card styled like profile sections -->
-  <div class="section-card">
-    <div class="section-card-header">
-      <h2 class="section-card-title">
-        <i class="fas fa-layer-group"></i>
-        Mox Data
-      </h2>
-    </div>
-    <div class="section-card-body">
-      <h3 style="text-align: center; margin-bottom: 0; margin-top: 16px;">Mox Data is a cloud-based <u>data ingestion tool</u> and <u>data analytics platform</u> for Magic: The Gathering Online.</h3>
-    </div>
-    <div class="section-card-body">
-      <p>Players can upload and process raw gameplay files created during online play. The processed data is then loaded and stored in our database, after which users can clean and enhance their own records. Data is presented in tables and dashboards that help players track results, evaluate performance, and analyze play patterns.</p>
-      <p style="margin: 8px 0 0 0; margin-top: 16px; text-align: center;">Head to the <a href="/getting_started"><b>Getting Started</b></a> page for step-by-step instructions showing you how to load, clean, and view your data.</p>
-      <div style="margin-top: 32px; display: flex; justify-content: center;">
-         <a href="/getting_started" class="button primary" style="min-width: 220px; text-align: center; justify-content: center;">Get Started Now</a>
-      </div>
-    </div>
+<div class="home-banner-strip">
+  <img
+    src="{{ url_for('static', filename='images/header2.png') }}"
+    alt="Mox Data banner"
+    class="home-banner-image"
+  >
+  <div class="home-banner-overlay">
+    <h2 class="home-banner-title">Mox Data</h2>
+    <p class="home-banner-subtitle">Cloud based data analytics platform for MTGO</p>
+    <a href="{% if current_user.is_authenticated %}{{ url_for('views.profile') }}{% else %}{{ url_for('views.getting_started') }}{% endif %}" class="button primary home-banner-cta">Get Started Now</a>
   </div>
+</div>
 
+<div class="home-container">
   <!-- Feature Cards Grid -->
   <div class="features-container">
       <!-- Match Details Card -->

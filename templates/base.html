@@ -235,12 +235,6 @@
                 <span class="nav-text">Ignored Matches</span>
               </a>
             </li>
-              <li class="nav-item">
-                <a href="{{ url_for('views.export') }}" class="nav-link table-dependent {% if initial_sidebar_status and not initial_sidebar_status.export_enabled %}disabled{% endif %}" id="exportMenuButton" onclick="handleExportClick(this); return false;">
-                  <i class="fas fa-file-excel nav-icon"></i>
-                  <span class="nav-text">Export to Excel</span>
-                </a>
-              </li>
             </ul>
           </div>
           
@@ -753,7 +747,7 @@
           <div class="modal-body">           
             <div class="message-box standard">
               <h4><div>1</div><a href="https://github.com/cderickson/Scripts/raw/main/Zip-MTGO-Logs.exe" target="_blank">Download and run the Zip-MTGO-Logs script</a></h4>
-              <p style="margin-left: 15px;">The script code is open source and available on GitHub</p><br>
+              <p style="margin-left: 15px;">The script code is open source and available on GitHub.</p><br>
               <h4><div>2</div>Create a .zip file</h4>
               <p style="margin-left: 15px;">Use the <strong>Zip-MTGO-Logs</strong> script to create a .zip file of your GameLog and DraftLog files.</p><br>
               <h4><div>3</div>Ready for import</h4>
@@ -1076,36 +1070,8 @@
     let downloadStarted = false;
     
     function handleExportClick(linkElement) {
-      // Reset state
-      downloadStarted = false;
-      
-      // Show processing modal
-      showProcessingModal('Preparing your Excel export...');
-      
-      // Hide cancel button initially
-      document.getElementById('processingButtons').style.display = 'none';
-      
-      // Show cancel button after 8 seconds
-      setTimeout(function() {
-        const modal = document.getElementById('processingModal');
-        if (modal.style.display === 'flex' && !downloadStarted) {
-          document.getElementById('processingButtons').style.display = 'block';
-          document.getElementById('processingMessage').textContent = 'Export is taking longer than expected. You can cancel or continue waiting.';
-        }
-      }, 8000);
-      
-      // Set up multiple download detection methods
-      setupAdvancedDownloadDetection();
-      
-      // Trigger the download
-      initiateDownload(linkElement.href);
-      
-      // Fallback: Hide modal after 60 seconds
-      exportTimeout = setTimeout(function() {
-        if (!downloadStarted) {
-          hideProcessingModal();
-        }
-      }, 60000);
+      // Let browser handle download natively (no processing modal heuristics).
+      window.location.assign(linkElement.href);
     }
     
     function initiateDownload(url) {
@@ -1434,7 +1400,6 @@
         { id: 'getMissingMenuButton', enabled: status.missing_winners_enabled },
         { id: 'applyDraftIdMenuButton', enabled: status.draft_ids_enabled },
         { id: 'reprocessMenuButton', enabled: status.reprocess_enabled },
-        { id: 'exportMenuButton', enabled: status.export_enabled },
         { id: 'dashboardsMenuButton', enabled: status.dashboards_enabled }
       ];
 

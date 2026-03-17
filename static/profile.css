@@ -35,7 +35,8 @@
 
 /* Fixed height options for user information card */
 .profile-left-column .section-card:nth-child(1).fixed-height-275 {
-    height: 275px;
+    min-height: 275px;
+    height: auto;
 }
 
 .profile-left-column .section-card:nth-child(1).fixed-height-250 {
@@ -55,7 +56,7 @@
 }
 
 .profile-container .section-card-title {
-    font-size: 18px;
+    font-size: 16px;
 }
 
 /* Custom height class for any value */
@@ -74,9 +75,88 @@
     flex-shrink: 0;
 }
 
+/* Smaller action buttons on profile page */
+.profile-left-column .section-card:nth-child(1) .header-action-btn {
+    padding: 8px 10px !important;
+    font-size: 12px !important;
+    line-height: 1.2;
+}
+
+.profile-card-footer {
+    display: flex;
+    justify-content: flex-start;
+    padding: 12px 24px ;
+    border-top: 1px solid #e9ecef;
+}
+
 .profile-info-grid {
     display: grid;
     gap: 20px;
+    flex: 1;
+}
+
+.profile-card-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+}
+
+.profile-image-panel {
+    width: 180px;
+    min-width: 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-right: 12px;
+}
+
+.profile-image-box {
+    width: 180px;
+    height: 180px;
+    border: 2px solid #000;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #f8f9fa;
+    position: relative;
+}
+
+.profile-image-box img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.profile-image-box .profile-input {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(248, 249, 250, 0.75);
+    padding: 12px;
+}
+
+.profile-image-box .profile-input .form-input {
+    width: 100%;
+    max-width: 150px;
+    background: #fff !important;
+    font-size: 12px !important;
+    line-height: 1.25;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    text-overflow: clip;
+    min-height: 56px;
+    height: auto;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+}
+
+#ProfileImageSelect option {
+    white-space: normal;
+    font-size: 12px;
 }
 
 .profile-info-item {
@@ -91,6 +171,24 @@
     font-size: 14px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+/* User profile card body text/labels styling */
+.profile-left-column .section-card:nth-child(1) .section-card-body {
+    color: #000;
+}
+
+.profile-left-column .section-card:nth-child(1) .profile-label {
+    color: #000;
+    font-weight: 700;
+    display: block;
+    width: 100%;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #000;
+}
+
+.profile-left-column .section-card:nth-child(1) .profile-value {
+    color: #000;
 }
 
 .profile-value {
@@ -138,20 +236,20 @@
 
 .match-history-table th {
     background-color: #f8f9fa;
-    padding: 12px 16px;
+    padding: 8px 12px;
     text-align: center;
     font-weight: 600;
     color: #333;
     border-bottom: 2px solid #e9ecef;
-    font-size: 13px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
 .match-history-table td {
-    padding: 12px 16px;
+    padding: 8px 12px;
     border-bottom: 1px solid #e9ecef;
-    font-size: 14px;
+    font-size: 12px;
     vertical-align: middle;
     text-align: center;
 }
@@ -220,7 +318,7 @@
 
 .match-result {
     display: inline-block;
-    padding: 4px 12px;
+    padding: 3px 9px;
     border-radius: 16px;
     font-size: 12px;
     font-weight: 600;
@@ -338,6 +436,17 @@
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
         gap: 16px;
     }
+
+    .profile-card-main {
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .profile-image-panel {
+        width: 100%;
+        min-width: 0;
+        margin-right: 0;
+    }
 }
 
 @media (max-width: 768px) {
@@ -349,7 +458,7 @@
     .match-history-table th,
     .match-history-table td {
         padding: 8px 12px;
-        font-size: 13px;
+        font-size: 11px;
     }
     
     .stat-item {
@@ -405,5 +514,10 @@
 
     .profile-container .section-card-title {
         font-size: 15px;
+    }
+
+    .profile-image-box {
+        width: 140px;
+        height: 140px;
     }
 }

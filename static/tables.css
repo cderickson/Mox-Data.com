@@ -361,6 +361,18 @@
     text-align: center;
 }
 
+/* Match modal action buttons to table action/pagination button sizing. */
+.modal-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    min-width: 125px;
+    justify-content: center;
+    text-align: center;
+}
+
 .table-floating-actions {
     display: flex;
     justify-content: center;

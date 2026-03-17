@@ -33,6 +33,28 @@
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
     margin: 0 !important;
     border-radius: 0 !important;
+    table-layout: fixed;
+}
+
+/* Standardized column widths across all data dictionary tables */
+.data-table .col-name,
+.data-table .col-name-cell {
+    width: 18%;
+}
+
+.data-table .col-desc,
+.data-table .col-desc-cell {
+    width: 34%;
+}
+
+.data-table .col-type,
+.data-table .col-type-cell {
+    width: 14%;
+}
+
+.data-table .col-format,
+.data-table .col-format-cell {
+    width: 34%;
 }
 
 /* Table description styling in header */
@@ -264,6 +286,9 @@
     font-size: 12px;
     border: 1px solid #e1e4e8;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 /* Options list styling - capsule style */
