@@ -111,7 +111,7 @@ class Pick(db.Model):
 class Draft(db.Model):
 	uid = db.Column(db.Integer, db.ForeignKey('player.uid'), primary_key=True)
 	draft_id = db.Column(db.String(75), primary_key=True)
-	hero = db.Column(db.String(30), primary_key=True)
+	hero = db.Column(db.String(30))
 	player2 = db.Column(db.String(30))
 	player3 = db.Column(db.String(30))
 	player4 = db.Column(db.String(30))
@@ -166,6 +166,22 @@ class TaskHistory(db.Model):
 	complete_date = db.Column(db.DateTime, nullable=True)
 	task_type = db.Column(db.String(35))
 	error_code = db.Column(db.String(50), nullable=True)	
+	def as_dict(self):
+		return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+class ExportJob(db.Model):
+	export_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+	uid = db.Column(db.Integer, nullable=False)
+	status = db.Column(db.String(20), nullable=False)  # queued|running|completed|failed|expired
+	storage_type = db.Column(db.String(10), nullable=False)  # s3|local
+	requested_at = db.Column(db.DateTime, nullable=False)
+	started_at = db.Column(db.DateTime, nullable=True)
+	completed_at = db.Column(db.DateTime, nullable=True)
+	expires_at = db.Column(db.DateTime, nullable=True)
+	cleaned_at = db.Column(db.DateTime, nullable=True)
+	zip_key = db.Column(db.String(512), nullable=True)
+	file_keys = db.Column(db.JSON, nullable=True)
+	error_message = db.Column(db.String(255), nullable=True)
 	def as_dict(self):
 		return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 

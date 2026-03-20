@@ -1073,6 +1073,9 @@ class TableManager {
         hideRemoveModal();
         showFlashMessage(result.message, 'success');
         await this.loadTableData(this.currentPage);
+        if (typeof window.refreshSidebarButtonStates === 'function') {
+          await window.refreshSidebarButtonStates();
+        }
       } else {
         showFlashMessage(result.error || 'Failed to remove records', 'error');
       }

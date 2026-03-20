@@ -46,7 +46,7 @@
 
         {% if not_confirmed %}
         <div class="alert info">
-          <strong>Email not confirmed!</strong> Click below to resend confirmation email.
+          <center><strong>Email not confirmed!</strong> Click below to resend confirmation email.</center>
         </div>
         <button type="button" class="auth-button" onclick="sendConfirmationEmail()">
           Send Confirmation Email
@@ -82,7 +82,9 @@
   <div class="modal-content">
     <div class="modal-header">
       <h3>Reset Password</h3>
-      <button type="button" onclick="hideResetModal()">&times;</button>
+      <button type="button" class="modal-close" onclick="hideResetModal()">
+        <i class="fas fa-times"></i>
+      </button>
     </div>
     <div class="modal-body">
       <div class="message-box standard">

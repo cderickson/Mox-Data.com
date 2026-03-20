@@ -1015,6 +1015,9 @@ function renderCharts(charts) {
 
       const ctx = canvas.getContext('2d');
       const isStacked = !!chart.stacked;
+      const isRollingMatchWinRateChart = (chart.title || '')
+        .toLowerCase()
+        .includes('rolling match win rate');
 
     const datasets = (chart.data?.datasets || []).map((ds, i) => {
       const datasetType = ds.type || chart.type || 'bar';
@@ -1028,10 +1031,11 @@ function renderCharts(charts) {
           borderColor: palette[i % palette.length],
           backgroundColor: 'transparent',
           borderWidth: 2,
-          tension: 0.25,
+          tension: isRollingMatchWinRateChart ? 0.4 : 0.25,
+          cubicInterpolationMode: isRollingMatchWinRateChart ? 'monotone' : 'default',
           fill: false,
-          pointRadius: 2,
-          pointHoverRadius: 5,
+          pointRadius: isRollingMatchWinRateChart ? 0 : 2,
+          pointHoverRadius: isRollingMatchWinRateChart ? 4 : 5,
           pointHitRadius: 10,
           spanGaps: true,
           showLine: true

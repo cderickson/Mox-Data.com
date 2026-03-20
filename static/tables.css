@@ -985,7 +985,8 @@
 /* Ensure Revise modals' footer button layout matches base modal footers */
 #ReviseModal .modal-footer > div,
 #ReviseMultiModal .modal-footer > div,
-#RemoveModal .modal-footer > div {
+#RemoveModal .modal-footer > div,
+#ReviseIgnoredModal .modal-footer > div {
     display: flex;
     gap: 12px; /* match .modal-footer gap in base.css */
     justify-content: flex-end; /* align buttons to the right like base */

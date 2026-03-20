@@ -183,19 +183,34 @@ function disableCarouselBehavior() {
 }
 
 // Flash Message Auto-Hide
-function initFlashMessages() {
-  const alerts = document.querySelectorAll('.alert');
-  
-  alerts.forEach(alert => {
-    // Auto-hide success messages after 5 seconds
-    if (alert.classList.contains('success')) {
-      setTimeout(() => {
-        alert.style.opacity = '0';
-        alert.style.transform = 'translateY(-10px)';
-        setTimeout(() => alert.remove(), 300);
-      }, 5000);
+function scheduleFlashRemoval(alertElement, delayMs = 2500) {
+  if (!alertElement || alertElement.dataset.autoDismissScheduled === 'true') {
+    return;
+  }
+
+  alertElement.dataset.autoDismissScheduled = 'true';
+
+  setTimeout(() => {
+    if (!alertElement.parentNode) {
+      return;
     }
-  });
+
+    alertElement.style.transition = 'opacity 0.25s ease, transform 0.25s ease, margin 0.25s ease';
+    alertElement.style.opacity = '0';
+    alertElement.style.transform = 'translateY(-8px)';
+    alertElement.style.marginBottom = '0';
+
+    setTimeout(() => {
+      if (alertElement.parentNode) {
+        alertElement.remove();
+      }
+    }, 260);
+  }, delayMs);
+}
+
+function initFlashMessages() {
+  const alerts = document.querySelectorAll('.flash-messages [role="alert"]');
+  alerts.forEach(alert => scheduleFlashRemoval(alert));
 }
 
 // Smooth Scrolling for Anchor Links
@@ -926,14 +941,8 @@ function showFlashMessage(message, category = 'info') {
   // Always append to flash container (newest messages at bottom)
   flashContainer.appendChild(alertDiv);
   
-  // Auto-remove after 5 seconds for success messages
-  if (category === 'success') {
-    setTimeout(() => {
-      if (alertDiv.parentNode) {
-        alertDiv.remove();
-      }
-    }, 5000);
-  }
+  // Auto-remove popup after a couple seconds
+  scheduleFlashRemoval(alertDiv);
 }
 
 // Initialize the manager when DOM is ready

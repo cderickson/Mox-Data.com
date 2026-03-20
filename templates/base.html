@@ -458,8 +458,8 @@
           </div>
           <div class="modal-body">
             <form id="getBestGuessModal" action="/best_guess" method="POST">
-              <input type="hidden" name="BG_Match_Set" id="BG_Match_Set" value="All Matches">
-              <input type="hidden" name="BG_Replace" id="BG_Replace" value="Replace NA">
+              <input type="hidden" name="BG_Match_Set" id="BG_Match_Set" value="">
+              <input type="hidden" name="BG_Replace" id="BG_Replace" value="">
               
               <div class="form-group">
                 <label class="form-label" >
@@ -468,7 +468,7 @@
                 </label>
                 <div class="dropdown">
                   <button class="button secondary dropdown-toggle" type="button" id="BG_Match_Set_Button" onclick="toggleDropdown(event, 'BG_Match_Set_Menu')">
-                    All Matches
+                    Choose an option
                   </button>
                   <ul class="dropdown-menu" id="BG_Match_Set_Menu">
                     <li onclick="setBestGuessMatchSet(this, 'All Matches')">All Matches</li>
@@ -486,11 +486,11 @@
                 </label>
                 <div class="dropdown">
                   <button class="button secondary dropdown-toggle" type="button" id="BG_Replace_Button" onclick="toggleDropdown(event, 'BG_Replace_Menu')">
-                    Replace NA
+                    Choose an option
                   </button>
                   <ul class="dropdown-menu" id="BG_Replace_Menu">
                     <li onclick="setBestGuessReplace(this, 'Overwrite All')">Overwrite All</li>
-                    <li onclick="setBestGuessReplace(this, 'Replace NA')">Replace NA</li>
+                    <li onclick="setBestGuessReplace(this, 'Replace NA')">Replace NA Only</li>
                   </ul>
                 </div>
                 <small >Decide whether to overwrite manually assigned deck names</small>
@@ -499,7 +499,7 @@
             
             <div class="message-box standard">
               <h4><i class="fas fa-info-circle"></i>How it Works</h4>
-              <p>This feature analyzes your deck compositions and automatically suggests appropriate deck names based on card patterns, colors, and archetypes.</p>
+              <p>This feature analyzes the cards played during a match and automatically assigns a best guess deck name based on similar decklists.</p>
             </div>
 
             <div class="message-box warning">
@@ -512,7 +512,7 @@
               <i class="fas fa-times"></i>
               Cancel
             </button>
-            <button type="submit" class="button primary" form="getBestGuessModal">
+            <button type="submit" class="button primary" form="getBestGuessModal" id="bestGuessApplyButton" disabled>
               <i class="fas fa-check"></i>
               Apply
             </button>
@@ -914,12 +914,32 @@
       const modal = document.getElementById('BestGuessModal');
       modal.style.display = 'flex';
       document.body.style.overflow = 'hidden';
+
+      // Reset selections each open to reduce accidental execution.
+      const matchSetButton = document.getElementById('BG_Match_Set_Button');
+      const replaceButton = document.getElementById('BG_Replace_Button');
+      const matchSetHidden = document.getElementById('BG_Match_Set');
+      const replaceHidden = document.getElementById('BG_Replace');
+      if (matchSetButton) matchSetButton.textContent = 'Choose an option';
+      if (replaceButton) replaceButton.textContent = 'Choose an option';
+      if (matchSetHidden) matchSetHidden.value = '';
+      if (replaceHidden) replaceHidden.value = '';
+      updateBestGuessApplyState();
     }
     
     function hideBestGuessModal() {
       const modal = document.getElementById('BestGuessModal');
       modal.style.display = 'none';
       document.body.style.overflow = 'auto';
+    }
+
+    function updateBestGuessApplyState() {
+      const matchSetValue = (document.getElementById('BG_Match_Set')?.value || '').trim();
+      const replaceValue = (document.getElementById('BG_Replace')?.value || '').trim();
+      const applyButton = document.getElementById('bestGuessApplyButton');
+      if (applyButton) {
+        applyButton.disabled = !(matchSetValue && replaceValue);
+      }
     }
     
     function setBestGuessMatchSet(element, value) {
@@ -933,19 +953,21 @@
       const dropdown = document.getElementById('BG_Match_Set_Menu');
       dropdown.classList.remove('show');
       button.classList.remove('active');
+      updateBestGuessApplyState();
     }
     
     function setBestGuessReplace(element, value) {
       const button = document.getElementById('BG_Replace_Button');
       const hiddenInput = document.getElementById('BG_Replace');
       
-      button.textContent = value;
+      button.textContent = (element?.textContent || '').trim() || value;
       hiddenInput.value = value;
       
       // Close dropdown
       const dropdown = document.getElementById('BG_Replace_Menu');
       dropdown.classList.remove('show');
       button.classList.remove('active');
+      updateBestGuessApplyState();
     }
     
     function showImportModal() {

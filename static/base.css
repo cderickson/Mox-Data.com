@@ -2554,24 +2554,24 @@ body.js-loaded .faq-container .collapsible-tab .section-card-content {
 }
 
 /* Modal footer button controls */
-.modal-footer .button,
-.modal-footer button,
-.modal-footer .btn-primary,
-.modal-footer .btn-secondary,
-.modal-footer .btn {
-    width: 150px;
+#ReviseIgnoredModal .modal-footer .button,
+#ReviseIgnoredModal .modal-footer button,
+#BestGuessModal .modal-footer .button,
+#BestGuessModal .modal-footer button,
+#GameWinnerModal .modal-footer .button,
+#GameWinnerModal .modal-footer button,
+#DraftIdModal .modal-footer .button,
+#DraftIdModal .modal-footer button,
+#ImportModal .modal-footer .button,
+#ImportModal .modal-footer button,
+#resetModal .modal-footer .button,
+#resetModal .modal-footer button,
+#LoadRevisionsModal .modal-footer .button,
+#LoadRevisionsModal .modal-footer button,
+#ReprocessModal .modal-footer .button,
+#ReprocessModal .modal-footer button {
+    width: 150px;   /* Match header action button width */
+    padding: 8px 16px; /* Match header action button padding */
     justify-content: center;
     text-align: center;
-}
-
-/* Game Winner Modal specific footer buttons */
-#GameWinnerModal .modal-footer .button {
-    /* Center all footer buttons in this modal, but do not change width here */
-    justify-content: center;
-    text-align: center;
-}
-
-#GameWinnerModal .modal-footer .button.primary {
-    /* Only widen Player buttons (primary). Skip (secondary) keeps global width */
-    width: 200px;
 }

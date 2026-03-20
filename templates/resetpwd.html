@@ -19,6 +19,7 @@
       
       <form action="/change_pwd" method="POST">
         <input type="hidden" name="email" id="email" value="{{ inputs.0 }}">
+        <input type="hidden" name="reset_token" id="reset_token" value="{{ token or '' }}">
         
         <div class="form-group">
           <label for="new_pwd" class="form-label">New Password</label>
@@ -86,7 +87,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     if (passwordInput.value === confirmInput.value) {
       matchIndicator.textContent = '✓ Passwords match';
-      matchIndicator.style.color = 'black';
+      matchIndicator.style.color = '#22c55e';
     } else {
       matchIndicator.textContent = '✗ Passwords do not match';
       matchIndicator.style.color = 'red';

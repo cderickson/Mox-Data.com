@@ -80,10 +80,13 @@
           </div>
         </div>
         <div class="profile-card-footer">
-          <a href="{{ url_for('views.export') }}" class="button secondary header-action-btn" onclick="handleExportClick(this); return false;">
-            <i class="fas fa-file-excel"></i>
-            Export Data
-          </a>
+          <div class="profile-export-actions">
+            <button type="button" id="ExportRequestButton" class="button secondary header-action-btn" onclick="requestDataExport()">
+              <i class="fas fa-file-export"></i>
+              Export to CSV
+            </button>
+          </div>
+          <div id="ExportStatusMessage" class="profile-export-status">No export requested yet.</div>
         </div>
       </div>
       

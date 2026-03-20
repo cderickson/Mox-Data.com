@@ -1,7 +1,7 @@
 from flask import render_template, request, Blueprint, flash, redirect, send_file, Response, jsonify, redirect, url_for, current_app, session, after_this_request
 from flask_mail import Mail, Message
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, create_engine, desc, select, and_, asc, case
+from sqlalchemy import func, create_engine, desc, select, and_, asc, case, or_
 from sqlalchemy.sql.expression import not_
 from flask_login import login_user, login_required, logout_user, current_user
 from datetime import datetime, timedelta
@@ -17,6 +17,7 @@ from modules.models import (
 	Removed,
 	CardsPlayed,
 	TaskHistory,
+	ExportJob,
 	InputOption,
 	MultifacedCard,
 	AllDeck,
@@ -27,12 +28,14 @@ from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignat
 import os
 import io
 import time
+import tempfile
 from modules import modo
 import pickle
 import math 
 import pandas as pd
 import zipfile
 import requests
+from urllib.parse import quote
 from celery import shared_task
 from celery.contrib.abortable import AbortableTask
 import boto3
@@ -89,30 +92,72 @@ s = URLSafeTimedSerializer(os.environ.get("URL_SAFETIMEDSERIALIZER", "dev-secret
 views = Blueprint('views', __name__)
 
 DEFAULT_PROFILE_IMAGE = 'Waterspout-Warden.png'
+EXPORT_TTL_SECONDS = 60 * 60  # 1 hour
+EXPORT_COOLDOWN_SECONDS = int(os.environ.get('EXPORT_COOLDOWN_SECONDS', str(15 * 60)))
+EXPORT_DOWNLOAD_SALT = os.environ.get("EXPORT_DOWNLOAD_SALT", "export-download-salt")
+
+def _utc_now():
+	"""Return current UTC time using non-deprecated API (naive UTC for existing DB DateTime usage)."""
+	return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+def unresolved_game_winner_filter():
+	"""Games whose winner is unresolved (null/blank/not P1,P2)."""
+	return or_(
+		Game.game_winner.is_(None),
+		func.trim(Game.game_winner) == '',
+		not_(Game.game_winner.in_(['P1', 'P2']))
+	)
+
+def unresolved_draft_id_filter():
+	"""Matches whose draft_id is unresolved (null/blank/NA)."""
+	return or_(
+		Match.draft_id.is_(None),
+		func.trim(Match.draft_id) == '',
+		Match.draft_id == 'NA'
+	)
+
+def count_actionable_missing_winners(uid, username):
+	"""Count unresolved hero-perspective games that have GameActions and a valid Match row."""
+	if not username:
+		return 0
+
+	return db.session.query(Game.uid).join(
+		Match,
+		(Game.uid == Match.uid) &
+		(Game.match_id == Match.match_id) &
+		(Game.p1 == Match.p1)
+	).join(
+		GameActions,
+		(GameActions.uid == Game.uid) &
+		(GameActions.match_id == Game.match_id) &
+		(GameActions.game_num == Game.game_num)
+	).filter(
+		Game.uid == uid,
+		Game.p1 == username,
+		unresolved_game_winner_filter()
+	).count()
+
+def count_actionable_draft_id_matches(uid, username):
+	"""Count hero-perspective limited matches still missing associated draft_id."""
+	if not username:
+		return 0
+
+	return Match.query.filter(
+		Match.uid == uid,
+		Match.p1 == username,
+		unresolved_draft_id_filter(),
+		Match.format.in_(['Cube', 'Booster Draft'])
+	).count()
 
 def compute_sidebar_status_for_user(uid):
     """Compute sidebar enable/disable status for a given user id."""
     match_count = Match.query.filter_by(uid=uid).count()
     draft_count = Draft.query.filter_by(uid=uid).count()
     removed_count = Removed.query.filter_by(uid=uid).count()
-    game_actions_count = GameActions.query.filter_by(uid=uid).count()
-
-    # Check if there are GameActions with valid match_ids (exist in Match table)
-    valid_game_actions_count = 0
-    if game_actions_count > 0:
-        game_action_match_ids = db.session.query(GameActions.match_id).filter_by(uid=uid).distinct().all()
-        game_action_match_ids = [row[0] for row in game_action_match_ids]
-        if game_action_match_ids:
-            valid_match_ids = db.session.query(Match.match_id).filter(
-                Match.uid == uid,
-                Match.match_id.in_(game_action_match_ids)
-            ).all()
-            valid_match_ids = [row[0] for row in valid_match_ids]
-            if valid_match_ids:
-                valid_game_actions_count = GameActions.query.filter(
-                    GameActions.uid == uid,
-                    GameActions.match_id.in_(valid_match_ids)
-                ).count()
+    username_row = db.session.query(Player.username).filter(Player.uid == uid).first()
+    username = username_row[0] if username_row else None
+    actionable_missing_winners_count = count_actionable_missing_winners(uid, username)
+    actionable_draft_id_count = count_actionable_draft_id_matches(uid, username)
 
     # Check if archive directory has files for reprocessing
     archive_files_count = 0
@@ -130,8 +175,8 @@ def compute_sidebar_status_for_user(uid):
         'best_guess_enabled': match_count > 0,
         'drafts_enabled': draft_count > 0,
         'ignored_matches_enabled': removed_count > 0,
-        'missing_winners_enabled': valid_game_actions_count > 0,
-        'draft_ids_enabled': match_count > 0 and draft_count > 0,
+        'missing_winners_enabled': actionable_missing_winners_count > 0,
+        'draft_ids_enabled': actionable_draft_id_count > 0,
         'reprocess_enabled': archive_files_count > 0,
         'export_enabled': match_count > 0 or draft_count > 0,
         'dashboards_enabled': match_count > 0 or draft_count > 0
@@ -396,11 +441,12 @@ def build_cards_played_db(uid):
 			pass
 def update_draft_win_loss(uid, username, draft_id):
 	if draft_id != 'NA':
-		draft_record = Draft.query.filter_by(uid=uid, draft_id=draft_id, hero=username).first()
+		draft_record = Draft.query.filter_by(uid=uid, draft_id=draft_id).first()
 		wins = Match.query.filter_by(uid=uid, draft_id=draft_id, p1=username, match_winner='P1').count()
 		losses = Match.query.filter_by(uid=uid, draft_id=draft_id, p1=username, match_winner='P2').count()
-		draft_record.match_wins = wins
-		draft_record.match_losses = losses
+		if draft_record:
+			draft_record.match_wins = wins
+			draft_record.match_losses = losses
 		try:
 			db.session.commit()
 		except:
@@ -541,6 +587,15 @@ def process_logs(self, data):
 		debug_log(f"🔍 EXTRACT DEBUG: replaced_files: {replaced_files}")
 		debug_log(f"🔍 EXTRACT DEBUG: skipped_files: {skipped_files}")
 		return {'skipped':skipped,'uploaded':uploaded, 'new_files':new_files, 'replaced_files':replaced_files, 'skipped_files':skipped_files}
+
+	def is_unresolved_text(value):
+		if value is None:
+			return True
+		val = str(value).strip()
+		return val == '' or val in ['NA', 'Unknown']
+
+	def is_resolved_text(value):
+		return not is_unresolved_text(value)
 	
 	counts = {
 		'new_matches':0,
@@ -718,6 +773,24 @@ def process_logs(self, data):
 							existing.p2_roll = match[9]
 							existing.roll_winner = match[10]
 							existing.date = match[17]
+							if is_unresolved_text(existing.draft_id) and is_resolved_text(match[1]):
+								existing.draft_id = match[1]
+							if is_unresolved_text(existing.p1_arch) and is_resolved_text(match[3]):
+								existing.p1_arch = match[3]
+							if is_unresolved_text(existing.p1_subarch) and is_resolved_text(match[4]):
+								existing.p1_subarch = match[4]
+							if is_unresolved_text(existing.p2_arch) and is_resolved_text(match[6]):
+								existing.p2_arch = match[6]
+							if is_unresolved_text(existing.p2_subarch) and is_resolved_text(match[7]):
+								existing.p2_subarch = match[7]
+							if is_unresolved_text(existing.match_winner) and is_resolved_text(match[13]):
+								existing.match_winner = match[13]
+							if is_unresolved_text(existing.format) and is_resolved_text(match[14]):
+								existing.format = match[14]
+							if is_unresolved_text(existing.limited_format) and is_resolved_text(match[15]):
+								existing.limited_format = match[15]
+							if is_unresolved_text(existing.match_type) and is_resolved_text(match[16]):
+								existing.match_type = match[16]
 							existing.proc_dt = proc_dt
 							Play.query.filter_by(uid=uid, match_id=match[0]).delete()
 							try:
@@ -805,14 +878,18 @@ def process_logs(self, data):
 						db.session.add(new_play)
 						counts['new_plays'] += 1
 					for game in parsed_data_inverted[3]:
-						if GameActions.query.filter_by(uid=uid, match_id=game[:-2], game_num=game[-1]).first():
-							continue
-						new_ga15 = GameActions(uid=uid,
+						existing_ga15 = GameActions.query.filter_by(uid=uid, match_id=game[:-2], game_num=game[-1]).first()
+						latest_actions = '\n'.join(parsed_data_inverted[3][game][-15:])
+						if existing_ga15:
+							existing_ga15.game_actions = latest_actions
+							existing_ga15.proc_dt = proc_dt
+						else:
+							new_ga15 = GameActions(uid=uid,
 											match_id=game[:-2],
 											game_num=game[-1],
-											game_actions='\n'.join(parsed_data_inverted[3][game][-15:]),
+											game_actions=latest_actions,
 											proc_dt=proc_dt)
-						db.session.add(new_ga15)
+							db.session.add(new_ga15)
 					try:
 						db.session.commit()
 					except:
@@ -823,9 +900,10 @@ def process_logs(self, data):
 					debug_log(f"🔍 DRAFTLOG DB: Number of drafts to process: {len(parsed_data[0])}")
 					for draft in parsed_data[0]:
 						debug_log(f"🔍 DRAFTLOG DB: Processing draft_id: {draft[0]}, hero: {draft[1]}")
-						if Draft.query.filter_by(uid=uid, draft_id=draft[0], hero=draft[1]).first():
+						if Draft.query.filter_by(uid=uid, draft_id=draft[0]).first():
 							debug_log(f"🔍 DRAFTLOG DB: Draft {draft[0]} already exists, updating...")
-							existing = Draft.query.filter_by(uid=uid, draft_id=draft[0], hero=draft[1]).first()
+							existing = Draft.query.filter_by(uid=uid, draft_id=draft[0]).first()
+							existing.hero = draft[1]
 							existing.player2 = draft[2]
 							existing.player3 = draft[3]
 							existing.player4 = draft[4]
@@ -1012,7 +1090,10 @@ def process_logs(self, data):
 			build_cards_played_db(uid)
 	
 	except Exception as e:
-		error_code = e
+		error_code = str(e)
+		debug_log(f"IMPORT TASK ERROR: process_logs failed for uid={uid}: {e}")
+		# Re-raise so Celery marks the task as failed instead of returning DONE.
+		raise
 
 	return 'DONE'
 
@@ -1082,7 +1163,9 @@ def process_revisions_from_app(self, data):
 			build_cards_played_db(uid)
 		except Exception as e:
 			debug_log(f'Error: {e}')
-			error_code = e
+			error_code = str(e)
+			# Re-raise so Celery marks task state as FAILURE instead of returning DONE.
+			raise
 
 		complete_date = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
 		curr_date = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific')).strftime('%Y-%m-%d')
@@ -1563,6 +1646,7 @@ def reprocess_logs(self, data):
 		try:
 			# Get list of files to process based on storage type
 			files_to_process = []
+			draft_ids_to_recompute = set()
 			proc_dt = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
 			
 			if not S3_ENABLED:  # Local file storage
@@ -1700,6 +1784,8 @@ def reprocess_logs(self, data):
 							existing.date = match[17]
 							existing.proc_dt = proc_dt
 							# Preserve user-revised columns: draft_id, p1_arch, p1_subarch, p2_arch, p2_subarch, format, limited_format, match_type
+							if existing.draft_id and str(existing.draft_id).strip() not in ['', 'NA']:
+								draft_ids_to_recompute.add(existing.draft_id)
 							counts['matches_updated'] += 1
 						else:
 							new_match = Match(uid=uid,
@@ -1723,6 +1809,8 @@ def reprocess_logs(self, data):
 											date=match[17],
 											proc_dt=proc_dt)
 							db.session.add(new_match)
+							if match[1] and str(match[1]).strip() not in ['', 'NA']:
+								draft_ids_to_recompute.add(match[1])
 							counts['new_matches'] += 1
 					for game in parsed_data_inverted[1]:
 						# Games are always new since we deleted all games for this match_id above
@@ -1779,11 +1867,6 @@ def reprocess_logs(self, data):
 				elif log_type == 'DraftLog':
 					count_draftlogs += 1
 					debug_log(f'DraftLog: {count_draftlogs}')
-					fname = filename.split('_')[-1].split('.draftlog')[0]
-
-					if Removed.query.filter_by(uid=uid, match_id=fname).first():
-						counts['draftlogs_skipped_removed'] += 1
-						continue
 
 					try:
 						parsed_data = modo.parse_draft_log(filename, initial)
@@ -1796,8 +1879,14 @@ def reprocess_logs(self, data):
 							draft_errors[str(error)] = 0
 						continue
 
+					draft_id = parsed_data[2] if len(parsed_data) > 2 else ''
+					removed_key = draft_id or filename
+					if Removed.query.filter_by(uid=uid, match_id=removed_key).first():
+						counts['draftlogs_skipped_removed'] += 1
+						continue
+
 					if len(parsed_data[1]) == 0:
-						newIgnore = Removed(uid=uid, match_id=fname, date=mtime, reason='Empty', proc_dt=proc_dt)
+						newIgnore = Removed(uid=uid, match_id=removed_key, date=mtime, reason='Empty', proc_dt=proc_dt)
 						db.session.add(newIgnore)
 						counts['draftlogs_skipped_empty'] += 1
 						continue
@@ -1841,7 +1930,7 @@ def reprocess_logs(self, data):
 											proc_dt=proc_dt)
 							db.session.add(new_draft)
 							counts['new_drafts'] += 1
-						update_draft_wins(uid, data['username'], draft[0])
+						draft_ids_to_recompute.add(draft[0])
 
 					for pick in parsed_data[1]:
 						# Picks are always new since we deleted all picks for this draft_id above
@@ -1878,6 +1967,9 @@ def reprocess_logs(self, data):
 						db.session.rollback()
 				if self.is_aborted():
 					return 'TASK STOPPED'
+			# Recompute draft W/L once after all file updates are applied.
+			for draft_id in sorted(draft_ids_to_recompute):
+				update_draft_wins(uid, data['username'], draft_id)
 			build_cards_played_db(uid)
 		except Exception as e:
 			debug_log(f'Error: {e}')
@@ -2059,32 +2151,33 @@ def update_vars():
 def send_confirmation_email():
 	inputs = [request.form.get('confirm_email'), request.form.get('confirm_pwd')]
 
-	if (not inputs[0]) or (not inputs[1]):
-		flash(f'Please fill in all fields.', category='error')
+	if (not inputs[0]):
+		flash(f'Please provide your email address.', category='error')
 		return render_template('login.html', user=current_user, inputs=inputs, not_confirmed=True)
 
 	user = Player.query.filter_by(email=inputs[0]).first()
 	if not user:
 		flash('Email not found.', category='error')
 		return render_template('login.html', user=current_user, inputs=inputs, not_confirmed=True)
-	if not check_password_hash(user.pwd, inputs[1]):
-		flash('Email/Password combination not found.', category='error')
-		return render_template('login.html', user=current_user, inputs=inputs, not_confirmed=True)
 	if user.is_confirmed:
 		flash('User has already been confirmed.', category='error')
-		login_user(user, remember=True)
-		return redirect(url_for('views.profile'))
+		return render_template('login.html', user=current_user, inputs=inputs, not_confirmed=False)
 	else:
 		token = s.dumps(inputs[0], salt=current_app.config.get("EMAIL_CONFIRMATION_SALT"))
 		mail = current_app.extensions['mail'] 
-		with current_app.app_context():
-			msg = Message('MTGO-Tracker - Email Confirmation', sender=current_app.config.get('MAIL_USERNAME'), recipients=[inputs[0]])
-			link = url_for('views.confirm_email', token=token, _external=True)
-			msg.body = 'Click the following link to confirm your email:\n\n{}'.format(link)
-			mail.send(msg)
+		try:
+			with current_app.app_context():
+				msg = Message('MTGO-Tracker - Email Confirmation', sender=current_app.config.get('MAIL_USERNAME'), recipients=[inputs[0]])
+				link = url_for('views.confirm_email', token=token, _external=True)
+				msg.body = 'Click the following link to confirm your email:\n\n{}'.format(link)
+				mail.send(msg)
+		except Exception as e:
+			debug_log(f'Error sending confirmation email: {e}')
+			flash('Unable to send confirmation email right now. Please try again shortly.', category='error')
+			return render_template('login.html', user=current_user, inputs=inputs, not_confirmed=True)
 
 		flash(f'New confirmation email has been sent (may need to check spam/junk folder).', category='success')
-		return render_template('index.html', user=current_user)
+		return render_template('login.html', user=current_user, inputs=[inputs[0], ''], not_confirmed=True)
 
 @views.route('/email', methods=['POST'])
 def email():
@@ -2095,6 +2188,9 @@ def email():
 		return render_template('register.html', user=current_user, inputs=inputs)
 	elif inputs[1] != inputs[2]:
 		flash(f'Passwords do not match.', category='error')
+		return render_template('register.html', user=current_user, inputs=inputs)
+	elif len(inputs[1]) < 6:
+		flash('Password must be at least 6 characters long.', category='error')
 		return render_template('register.html', user=current_user, inputs=inputs)
 	else:
 		user = Player.query.filter_by(email=inputs[0]).first()
@@ -2111,18 +2207,27 @@ def email():
 		db.session.add(new_user)
 		try:
 			db.session.commit()
-		except:
+		except Exception as e:
 			db.session.rollback()
+			debug_log(f'Error creating user account: {e}')
+			flash('Unable to create account right now. Please try again.', category='error')
+			return render_template('register.html', user=current_user, inputs=inputs)
 
 		email = request.form['email']
 		token = s.dumps(email, salt=current_app.config.get("EMAIL_CONFIRMATION_SALT"))
 
 		mail = current_app.extensions['mail'] 
-		with current_app.app_context():
-			msg = Message('MTGO-Tracker - Email Confirmation', sender=current_app.config.get('MAIL_USERNAME'), recipients=[email])
-			link = url_for('views.confirm_email', token=token, _external=True)
-			msg.body = 'Click the following link to confirm your email:\n\n{}'.format(link)
-			mail.send(msg)
+		try:
+			with current_app.app_context():
+				msg = Message('MTGO-Tracker - Email Confirmation', sender=current_app.config.get('MAIL_USERNAME'), recipients=[email])
+				link = url_for('views.confirm_email', token=token, _external=True)
+				msg.body = 'Click the following link to confirm your email:\n\n{}'.format(link)
+				mail.send(msg)
+		except Exception as e:
+			debug_log(f'Error sending registration confirmation email: {e}')
+			logout_user()
+			flash('User account created, but we could not send confirmation email right now. Please use "Resend confirmation email" on the login page.', category='error')
+			return render_template('login.html', user=current_user, inputs=[email, ""], not_confirmed=True)
 
 		logout_user()
 		flash(f'User account created. Email confirmation sent (may need to check spam/junk folder).', category='success')
@@ -2136,20 +2241,20 @@ def reset_pwd():
 		flash(f'Please fill in all fields.', category='error')
 		return render_template('login.html', user=current_user, inputs=['',''])
 	user = Player.query.filter_by(email=email).first()
-	if not user:
-		flash(f'Account with this email address does not exist.', category='error')
-		return render_template('login.html', user=current_user, inputs=['',''])
+	if user:
+		token = s.dumps(email, salt=current_app.config.get('RESET_PASSWORD_SALT'))
+		mail = current_app.extensions['mail']
+		try:
+			with current_app.app_context():
+				msg = Message('MTGO-Tracker - Password Reset', sender=current_app.config.get('MAIL_USERNAME'), recipients=[email])
+				link = url_for('views.reset_email', token=token, _external=True)
+				msg.body = 'Click the following link to reset your password:\n\n{}'.format(link)
+				mail.send(msg)
+		except Exception as e:
+			debug_log(f'Error sending password reset email: {e}')
 
-	token = s.dumps(email, salt=current_app.config.get('RESET_PASSWORD_SALT'))
-
-	mail = current_app.extensions['mail'] 
-	with current_app.app_context():
-		msg = Message('MTGO-Tracker - Password Reset', sender=current_app.config.get('MAIL_USERNAME'), recipients=[email])
-		link = url_for('views.reset_email', token=token, _external=True)
-		msg.body = 'Click the following link to reset your password:\n\n{}'.format(link)
-		mail.send(msg)
-
-	flash(f'Reset Password email sent (may need to check spam/junk folder).', category='success')
+	# Use a generic success message to avoid account enumeration.
+	flash('If an account exists for that email, a reset link has been sent (may need to check spam/junk folder).', category='success')
 	return render_template('login.html', user=current_user, inputs=[email,""], not_confirmed=False)
 
 @views.route('/confirm_email/<token>')
@@ -2183,7 +2288,7 @@ def reset_email(token):
 		if user is None:
 			flash('User not found.', category='error')
 			return redirect(url_for('views.index'))
-		return render_template('resetpwd.html', user=current_user, inputs=[email])
+		return render_template('resetpwd.html', user=current_user, inputs=[email], token=token)
 	except SignatureExpired:
 		flash('Reset Password link has expired.', category='error')
 		return redirect(url_for('views.index'))
@@ -2193,20 +2298,38 @@ def reset_email(token):
 
 @views.route('/change_pwd', methods=['POST'])
 def change_pwd():
-	inputs = [request.form.get('email'), request.form.get('new_pwd'), request.form.get('new_pwd_confirm')]
+	token = request.form.get('reset_token')
+	new_pwd = request.form.get('new_pwd')
+	new_pwd_confirm = request.form.get('new_pwd_confirm')
 
-	user = Player.query.filter_by(email=inputs[0]).first()
+	if not token:
+		flash('Reset Password link is invalid.', category='error')
+		return redirect(url_for('views.index'))
+
+	try:
+		email = s.loads(token, salt=current_app.config.get('RESET_PASSWORD_SALT'), max_age=3600)
+	except SignatureExpired:
+		flash('Reset Password link has expired.', category='error')
+		return redirect(url_for('views.index'))
+	except BadTimeSignature:
+		flash('The token is not correct.', category='error')
+		return redirect(url_for('views.index'))
+
+	user = Player.query.filter_by(email=email).first()
 	if user is None:
 		flash('User not found.', category='error')
 		return redirect(url_for('views.index'))
-	if (not inputs[0]) or (not inputs[1]) or (not inputs[2]):
+	if (not new_pwd) or (not new_pwd_confirm):
 		flash(f'Please fill in all fields.', category='error')
-		return render_template('resetpwd.html', user=current_user, inputs=[inputs[1]])
-	elif inputs[1] != inputs[2]:
+		return render_template('resetpwd.html', user=current_user, inputs=[email], token=token)
+	elif new_pwd != new_pwd_confirm:
 		flash(f'Passwords do not match.', category='error')
-		return render_template('resetpwd.html', user=current_user, inputs=[inputs[1]])
+		return render_template('resetpwd.html', user=current_user, inputs=[email], token=token)
+	elif len(new_pwd) < 6:
+		flash('Password must be at least 6 characters long.', category='error')
+		return render_template('resetpwd.html', user=current_user, inputs=[email], token=token)
 	else:
-		user.pwd = generate_password_hash(inputs[1])
+		user.pwd = generate_password_hash(new_pwd)
 		try:
 			db.session.commit()
 		except:
@@ -2276,6 +2399,15 @@ def load():
 		return redirect(url_for('views.index'))
 
 	file_stream = io.BytesIO(uploaded_file.read())
+	filename = (uploaded_file.filename or '').lower()
+
+	# Server-side validation: only accept valid zip archives.
+	if not filename.endswith('.zip'):
+		flash('Invalid file type. Please upload a .zip file.', category='error')
+		return redirect(url_for('views.index'))
+	if not zipfile.is_zipfile(file_stream):
+		flash('Invalid zip archive. Please upload a valid .zip file.', category='error')
+		return redirect(url_for('views.index'))
 
 	task = process_logs.delay({'email':current_user.email, 'file_stream':file_stream.getvalue(), 'user_id':current_user.uid, 'username':current_user.username})
 
@@ -2447,15 +2579,13 @@ def table_drill(table_name, row_id, game_num):
 @login_required
 def api_game_winner_next():
 	"""Get the next game that needs a winner assigned"""
-	if request.headers.get('X-Requested-By') != 'MTGO-Tracker':
-		return jsonify({'error': 'Forbidden'}), 403
-	
 	try:
-		# Query for games with missing winners
+		# Query for games with unresolved winners.
 		na_query = Game.query.filter_by(
 			uid=current_user.uid, 
-			game_winner='NA', 
 			p1=current_user.username
+		).filter(
+			unresolved_game_winner_filter()
 		).join(
 			Match, 
 			(Game.uid == Match.uid) & 
@@ -2467,7 +2597,7 @@ def api_game_winner_next():
 			return jsonify({'hasGames': False})
 
 		# Find first game with game actions
-		for game, match in na_query.order_by(asc(Match.date), asc(Game.game_num)).all():
+		for game, match in na_query.order_by(asc(Match.date), asc(Match.match_id), asc(Game.game_num)).all():
 			game_actions_record = GameActions.query.filter_by(
 				uid=current_user.uid, 
 				match_id=match.match_id, 
@@ -2509,9 +2639,6 @@ def api_game_winner_next():
 @login_required  
 def api_game_winner_update():
 	"""Update a game winner and return the next game"""
-	if request.headers.get('X-Requested-By') != 'MTGO-Tracker':
-		return jsonify({'error': 'Forbidden'}), 403
-	
 	try:
 		data = request.get_json()
 		if not data:
@@ -2520,8 +2647,6 @@ def api_game_winner_update():
 		match_id = data.get('match_id')
 		game_num = data.get('game_num')
 		winner = data.get('winner')  # 'P1', 'P2', or 'skip'
-		p1 = data.get('p1')
-		p2 = data.get('p2')
 		
 		if not all([match_id, game_num, winner]):
 			return jsonify({'error': 'Missing required fields'}), 400
@@ -2541,37 +2666,54 @@ def api_game_winner_update():
 			
 			draft_id = 'NA'
 			
-			# Determine actual winner name
+			# Determine winner side from the authoritative hero-perspective row,
+			# not from client-provided player names.
+			hero_game = Game.query.filter_by(
+				uid=current_user.uid,
+				match_id=match_id,
+				game_num=game_num,
+				p1=current_user.username
+			).first()
+			if hero_game is None:
+				return jsonify({'error': 'Game not found for current user context'}), 404
+
 			if winner == 'P1':
-				game_winner = p1
+				game_winner = hero_game.p1
 			elif winner == 'P2':
-				game_winner = p2
+				game_winner = hero_game.p2
 			else:
 				game_winner = '0'
 			
 			# Update games
+			changed_games = 0
 			for game in games:
-				if game.game_winner == 'NA':
+				current_winner = (game.game_winner or '').strip().upper()
+				if current_winner not in ('P1', 'P2'):
 					if game.p1 == game_winner:
 						game.game_winner = 'P1'
+						changed_games += 1
 					elif game.p2 == game_winner:
 						game.game_winner = 'P2'
+						changed_games += 1
 			
-			# Update matches
-			for match in matches:
-				draft_id = match.draft_id
-				if match.p1 == game_winner:
-					match.p1_wins += 1
-				elif match.p2 == game_winner:
-					match.p2_wins += 1
-				
-				# Update match winner
-				if match.p1_wins > match.p2_wins:
-					match.match_winner = 'P1'
-				elif match.p2_wins > match.p1_wins:
-					match.match_winner = 'P2'
-				else:
-					match.match_winner = 'NA'
+			# Only apply match-level win counters if this request actually
+			# resolved at least one game winner for this match/game_num.
+			if changed_games > 0:
+				# Update matches
+				for match in matches:
+					draft_id = match.draft_id
+					if match.p1 == game_winner:
+						match.p1_wins += 1
+					elif match.p2 == game_winner:
+						match.p2_wins += 1
+					
+					# Update match winner
+					if match.p1_wins > match.p2_wins:
+						match.match_winner = 'P1'
+					elif match.p2_wins > match.p1_wins:
+						match.match_winner = 'P2'
+					else:
+						match.match_winner = 'NA'
 			
 			# Delete GameActions records for this game
 			GameActions.query.filter_by(
@@ -2580,12 +2722,13 @@ def api_game_winner_update():
 				game_num=game_num
 			).delete()
 			
-			# Update draft win/loss records
-			update_draft_win_loss(
-				uid=current_user.uid, 
-				username=current_user.username, 
-				draft_id=draft_id
-			)
+			# Update draft win/loss records only when a game winner changed.
+			if changed_games > 0:
+				update_draft_win_loss(
+					uid=current_user.uid, 
+					username=current_user.username, 
+					draft_id=draft_id
+				)
 			
 			try:
 				db.session.commit()
@@ -2599,11 +2742,12 @@ def api_game_winner_update():
 			match_id=match_id, 
 			uid=current_user.uid
 		).first().date
-		
+
 		rem_games = Game.query.filter_by(
 			uid=current_user.uid, 
-			game_winner='NA', 
 			p1=current_user.username
+		).filter(
+			unresolved_game_winner_filter()
 		).join(
 			Match, 
 			(Game.uid == Match.uid) & 
@@ -2611,7 +2755,7 @@ def api_game_winner_update():
 			(Game.p1 == Match.p1)
 		).add_entity(Match).filter(
 			Match.date >= current_match_date
-		).order_by(asc(Match.date), asc(Game.game_num))
+		).order_by(asc(Match.date), asc(Match.match_id), asc(Game.game_num))
 		
 		# Look for next game after current one
 		current_found = False
@@ -2670,9 +2814,6 @@ def api_game_winner_update():
 @login_required
 def api_draft_id_next():
 	"""Get the next limited match that needs a draft_id assigned"""
-	if request.headers.get('X-Requested-By') != 'MTGO-Tracker':
-		return jsonify({'error': 'Forbidden'}), 403
-	
 	global multifaced
 	if multifaced is None:
 		try:
@@ -2692,16 +2833,15 @@ def api_draft_id_next():
 		# Query for limited matches with missing draft_id
 		limited_matches = Match.query.filter_by(
 			uid=current_user.uid, 
-			draft_id='NA', 
 			p1=current_user.username
 		).filter(
+			unresolved_draft_id_filter()
+		).filter(
 			Match.format.in_(['Cube', 'Booster Draft'])
-		).order_by(asc(Match.date))
+		).order_by(asc(Match.date), asc(Match.match_id)).all()
 		
-		first_match = limited_matches.first()
-		
-		# Find a match with valid card data and possible draft associations
-		while first_match:
+		# Find the first match with valid card data and possible draft associations
+		for first_match in limited_matches:
 			# Get cards played in this match
 			lands = [play.primary_card for play in Play.query.filter_by(
 				uid=current_user.uid, 
@@ -2765,10 +2905,6 @@ def api_draft_id_next():
 				})
 				
 				return jsonify(match_data)
-
-			# Try next match
-			limited_matches = limited_matches.filter(Match.date > first_match.date).order_by(Match.date)
-			first_match = limited_matches.first()
 		
 		# No matches found
 		return jsonify({'hasMatches': False})
@@ -2781,9 +2917,6 @@ def api_draft_id_next():
 @login_required  
 def api_draft_id_update():
 	"""Update a match with draft_id and return the next match"""
-	if request.headers.get('X-Requested-By') != 'MTGO-Tracker':
-		return jsonify({'error': 'Forbidden'}), 403
-	
 	global multifaced
 	if multifaced is None:
 		try:
@@ -2861,13 +2994,14 @@ def api_draft_id_update():
 		# Query for remaining limited matches (include current date for sequential search)
 		remaining_matches = Match.query.filter_by(
 			uid=current_user.uid, 
-			draft_id='NA', 
 			p1=current_user.username
+		).filter(
+			unresolved_draft_id_filter()
 		).filter(
 			Match.format.in_(['Cube', 'Booster Draft'])
 		).filter(
 			Match.date >= current_match_date  # Include current date
-		).order_by(Match.date)
+		).order_by(asc(Match.date), asc(Match.match_id))
 		
 		# Look for next match after current one using sequential logic
 		current_found = False
@@ -2984,164 +3118,427 @@ def input_options():
 	ensure_data_loaded()
 	return options
 
-@views.route('/export')
-@login_required
-def export():
-	acquired_export_lock = False
-	with export_locks_guard:
-		if current_user.uid in active_export_users:
-			flash('An export is already in progress for your account. Please wait for it to finish.', 'warning')
-			return redirect(url_for('views.profile'))
-		active_export_users.add(current_user.uid)
-		acquired_export_lock = True
+def _export_local_dir(uid):
+	return os.path.join('local-dev', 'data', 'exports', str(uid))
+
+def _safe_export_delete(storage_type, key):
+	if not key:
+		return
+	try:
+		if storage_type == 's3':
+			s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=S3_PREFIX + key)
+		else:
+			if os.path.exists(key):
+				os.remove(key)
+	except Exception as e:
+		debug_log(f"Error deleting export artifact ({storage_type}): {e}")
+
+def cleanup_export_artifacts_on_startup():
+	"""Delete all existing export artifacts at app startup and mark jobs cleaned."""
+	now_utc = _utc_now()
+	jobs = ExportJob.query.filter(
+		or_(
+			ExportJob.zip_key.isnot(None),
+			ExportJob.file_keys.isnot(None)
+		)
+	).all()
+
+	cleaned_jobs = 0
+	for job in jobs:
+		for key in (job.file_keys or []):
+			_safe_export_delete(job.storage_type, key)
+		_safe_export_delete(job.storage_type, job.zip_key)
+
+		job.file_keys = None
+		job.zip_key = None
+		job.cleaned_at = now_utc
+
+		if job.status == 'completed':
+			job.status = 'expired'
+			job.expires_at = now_utc
+		elif job.status in ['queued', 'running']:
+			job.status = 'failed'
+			if not job.error_message:
+				job.error_message = 'Export invalidated by application restart cleanup.'
+
+		cleaned_jobs += 1
+
+	if cleaned_jobs == 0:
+		return
 
 	try:
-		file_name = f'{current_user.email}_Tables.zip'
-		empty_tables = []
-		export_cnt = 0
-		zip_buffer = io.BytesIO()
-		
-		# Debug info
-		debug_log(f"Export started for user: {current_user.uid}, {current_user.username}")
-		
-		def dataframe_to_excel_bytes(df: pd.DataFrame) -> bytes:
-			buffer = io.BytesIO()
-			with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-				df.to_excel(writer, index=False)
-			buffer.seek(0)
-			return buffer.getvalue()
-		
-		with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
-			# Matches
-			try:
-				query = select(Match).where(
-					(Match.uid == current_user.uid) & 
-					(Match.p1 == current_user.username)
-				)
-				matches_df = pd.read_sql(query, db.engine)
-				debug_log(f"Matches query returned {len(matches_df)} rows")
-				
-				if not matches_df.empty:
-					matches_df = matches_df.drop('uid', axis=1)
-					zipf.writestr(
-						f'{current_user.email}_Matches.xlsx',
-						dataframe_to_excel_bytes(matches_df)
-					)
-					export_cnt += 1
-				else:
-					empty_tables.append('Matches')
-			except Exception as e:
-				debug_log(f"Matches export error: {e}")
-				empty_tables.append('Matches')
-			
-			# Games
-			try:
-				query = select(Game).where(
-					(Game.uid == current_user.uid) & 
-					(Game.p1 == current_user.username)
-				)
-				games_df = pd.read_sql(query, db.engine)
-				debug_log(f"Games query returned {len(games_df)} rows")
-				
-				if not games_df.empty:
-					games_df = games_df.drop('uid', axis=1)
-					zipf.writestr(
-						f'{current_user.email}_Games.xlsx',
-						dataframe_to_excel_bytes(games_df)
-					)
-					export_cnt += 1
-				else:
-					empty_tables.append('Games')
-			except Exception as e:
-				debug_log(f"Games export error: {e}")
-				empty_tables.append('Games')
-			
-			# Plays
-			try:
-				query = select(Play).where(Play.uid == current_user.uid)
-				plays_df = pd.read_sql(query, db.engine)
-				debug_log(f"Plays query returned {len(plays_df)} rows")
-				
-				if not plays_df.empty:
-					plays_df = plays_df.drop('uid', axis=1)
-					zipf.writestr(
-						f'{current_user.email}_Plays.xlsx',
-						dataframe_to_excel_bytes(plays_df)
-					)
-					export_cnt += 1
-				else:
-					empty_tables.append('Plays')
-			except Exception as e:
-				debug_log(f"Plays export error: {e}")
-				empty_tables.append('Plays')
-			
-			# Picks
-			try:
-				query = select(Pick).where(Pick.uid == current_user.uid)
-				picks_df = pd.read_sql(query, db.engine)
-				debug_log(f"Picks query returned {len(picks_df)} rows")
-				
-				if not picks_df.empty:
-					picks_df = picks_df.drop('uid', axis=1)
-					zipf.writestr(
-						f'{current_user.email}_Picks.xlsx',
-						dataframe_to_excel_bytes(picks_df)
-					)
-					export_cnt += 1
-				else:
-					empty_tables.append('Picks')
-			except Exception as e:
-				debug_log(f"Picks export error: {e}")
-				empty_tables.append('Picks')
-			
-			# Drafts
-			try:
-				query = select(Draft).where(Draft.uid == current_user.uid)
-				drafts_df = pd.read_sql(query, db.engine)
-				debug_log(f"Drafts query returned {len(drafts_df)} rows")
-				
-				if not drafts_df.empty:
-					drafts_df = drafts_df.drop('uid', axis=1)
-					zipf.writestr(
-						f'{current_user.email}_Drafts.xlsx',
-						dataframe_to_excel_bytes(drafts_df)
-					)
-					export_cnt += 1
-				else:
-					empty_tables.append('Drafts')
-			except Exception as e:
-				debug_log(f"Drafts export error: {e}")
-				empty_tables.append('Drafts')
-		
-		# Check if any files were created
-		if export_cnt == 0:
-			debug_log("No data available for export - all tables empty")
-			return redirect(url_for('views.index'))
+		db.session.commit()
+		debug_log(f"Startup export cleanup completed. Jobs cleaned: {cleaned_jobs}")
+	except Exception as e:
+		db.session.rollback()
+		debug_log(f"Startup export cleanup failed: {e}")
 
-		zip_buffer.seek(0)
-		debug_log(f"Export successful - created {export_cnt} files")
+def _build_export_download_token(job):
+	return s.dumps(
+		{
+			'uid': job.uid,
+			'export_id': job.export_id,
+		},
+		salt=EXPORT_DOWNLOAD_SALT
+	)
+
+def _build_external_export_url(token):
+	relative_path = f"/export/download/{quote(token, safe='')}"
+	base_url = os.environ.get('APP_BASE_URL') or current_app.config.get('APP_BASE_URL')
+	if base_url:
+		return f"{base_url.rstrip('/')}{relative_path}"
+	# Local-development fallback when APP_BASE_URL is not configured.
+	return f"http://localhost:8000{relative_path}"
+
+def _cleanup_expired_exports(uid):
+	now_utc = _utc_now()
+	expired_jobs = ExportJob.query.filter(
+		ExportJob.uid == uid,
+		ExportJob.status == 'completed',
+		ExportJob.expires_at.isnot(None),
+		ExportJob.expires_at <= now_utc
+	).all()
+
+	if not expired_jobs:
+		return
+
+	for job in expired_jobs:
+		for key in (job.file_keys or []):
+			_safe_export_delete(job.storage_type, key)
+		_safe_export_delete(job.storage_type, job.zip_key)
+		job.status = 'expired'
+		job.cleaned_at = now_utc
+
+	try:
+		db.session.commit()
+	except Exception as e:
+		db.session.rollback()
+		debug_log(f"Error cleaning expired exports: {e}")
+
+def _latest_export_job(uid):
+	return ExportJob.query.filter_by(uid=uid).order_by(desc(ExportJob.requested_at), desc(ExportJob.export_id)).first()
+
+def _latest_downloadable_export(uid):
+	now_utc = _utc_now()
+	return ExportJob.query.filter(
+		ExportJob.uid == uid,
+		ExportJob.status == 'completed',
+		ExportJob.expires_at.isnot(None),
+		ExportJob.expires_at > now_utc,
+		ExportJob.zip_key.isnot(None)
+	).order_by(desc(ExportJob.completed_at), desc(ExportJob.export_id)).first()
+
+def _export_status_payload(uid):
+	_cleanup_expired_exports(uid)
+	now_utc = _utc_now()
+	latest = _latest_export_job(uid)
+	latest_download = _latest_downloadable_export(uid)
+
+	latest_request = ExportJob.query.filter_by(uid=uid).order_by(desc(ExportJob.requested_at), desc(ExportJob.export_id)).first()
+	cooldown_remaining_seconds = 0
+	if latest_request:
+		next_allowed = latest_request.requested_at + datetime.timedelta(seconds=EXPORT_COOLDOWN_SECONDS)
+		cooldown_remaining_seconds = max(0, int((next_allowed - now_utc).total_seconds()))
+
+	active_job = ExportJob.query.filter(
+		ExportJob.uid == uid,
+		ExportJob.status.in_(['queued', 'running'])
+	).first()
+
+	return {
+		'latest_status': latest.status if latest else None,
+		'latest_error': latest.error_message if latest and latest.status == 'failed' else None,
+		'active_job': active_job is not None,
+		'cooldown_remaining_seconds': cooldown_remaining_seconds,
+		'download_available': latest_download is not None,
+		'latest_download_expires_at': latest_download.expires_at.isoformat() + 'Z' if latest_download and latest_download.expires_at else None,
+	}
+
+@shared_task(bind=True, base=AbortableTask)
+def generate_export_csv(self, data):
+	from app import create_app
+	app = create_app()
+
+	with app.app_context():
+		job = ExportJob.query.filter_by(export_id=data['export_id'], uid=data['uid']).first()
+		if not job:
+			return {'error': 'missing export job'}
+
+		job.status = 'running'
+		job.started_at = _utc_now()
+		try:
+			db.session.commit()
+		except Exception:
+			db.session.rollback()
+			return {'error': 'failed to start export job'}
+
+		temp_paths = []
+		csv_artifacts = []
+		persisted_csv_keys = []
+		persisted_zip_key = None
+
+		try:
+			timestamp = _utc_now().strftime('%Y%m%d_%H%M%S')
+			filename_prefix = f"{data['uid']}_{timestamp}_"
+			query_specs = [
+				('matches', select(Match).where((Match.uid == data['uid']) & (Match.p1 == data['username']))),
+				('games', select(Game).where((Game.uid == data['uid']) & (Game.p1 == data['username']))),
+				('plays', select(Play).where(Play.uid == data['uid'])),
+				('picks', select(Pick).where(Pick.uid == data['uid'])),
+				('drafts', select(Draft).where(Draft.uid == data['uid'])),
+			]
+
+			for table_name, query in query_specs:
+				tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{table_name}.csv")
+				tmp_file_path = tmp_file.name
+				tmp_file.close()
+				temp_paths.append(tmp_file_path)
+
+				wrote_rows = False
+				for chunk in pd.read_sql(query, db.engine, chunksize=50000):
+					if chunk.empty:
+						continue
+					if 'uid' in chunk.columns:
+						chunk = chunk.drop(columns=['uid'])
+					chunk.to_csv(tmp_file_path, mode='a', index=False, header=(not wrote_rows))
+					wrote_rows = True
+
+				if wrote_rows:
+					artifact_name = f"{filename_prefix}{table_name}.csv"
+					csv_artifacts.append({'name': artifact_name, 'path': tmp_file_path})
+				else:
+					os.remove(tmp_file_path)
+					temp_paths.remove(tmp_file_path)
+
+			if not csv_artifacts:
+				raise ValueError('No exportable rows were found.')
+
+			stored_csv_keys = []
+			if S3_ENABLED:
+				for artifact in csv_artifacts:
+					storage_key = f"{data['uid']}/export/{artifact['name']}"
+					s3_client.upload_file(artifact['path'], S3_BUCKET_NAME, S3_PREFIX + storage_key)
+					stored_csv_keys.append(storage_key)
+					persisted_csv_keys.append(storage_key)
+			else:
+				local_dir = _export_local_dir(data['uid'])
+				os.makedirs(local_dir, exist_ok=True)
+				for artifact in csv_artifacts:
+					final_path = os.path.join(local_dir, artifact['name'])
+					os.replace(artifact['path'], final_path)
+					if artifact['path'] in temp_paths:
+						temp_paths.remove(artifact['path'])
+					artifact['path'] = final_path
+					stored_csv_keys.append(final_path)
+					persisted_csv_keys.append(final_path)
+
+			zip_name = f"{filename_prefix}export.zip"
+			if S3_ENABLED:
+				tmp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='_export.zip')
+				tmp_zip_path = tmp_zip.name
+				tmp_zip.close()
+				temp_paths.append(tmp_zip_path)
+				with zipfile.ZipFile(tmp_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
+					for artifact in csv_artifacts:
+						zipf.write(artifact['path'], arcname=artifact['name'])
+				zip_key = f"{data['uid']}/export/{zip_name}"
+				s3_client.upload_file(tmp_zip_path, S3_BUCKET_NAME, S3_PREFIX + zip_key)
+				persisted_zip_key = zip_key
+			else:
+				local_dir = _export_local_dir(data['uid'])
+				zip_key = os.path.join(local_dir, zip_name)
+				with zipfile.ZipFile(zip_key, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
+					for artifact in csv_artifacts:
+						zipf.write(artifact['path'], arcname=artifact['name'])
+				persisted_zip_key = zip_key
+
+			now_utc = _utc_now()
+			job.status = 'completed'
+			job.completed_at = now_utc
+			job.expires_at = now_utc + datetime.timedelta(seconds=EXPORT_TTL_SECONDS)
+			job.storage_type = 's3' if S3_ENABLED else 'local'
+			job.file_keys = stored_csv_keys
+			job.zip_key = zip_key
+			job.error_message = None
+			db.session.commit()
+
+			try:
+				download_token = _build_export_download_token(job)
+				download_url = _build_external_export_url(download_token)
+				msg = Message(
+					'Mox Data Export Ready',
+					sender=current_app.config.get('MAIL_USERNAME'),
+					recipients=[data['email']]
+				)
+				msg.body = (
+					"Your export is ready.\n\n"
+					f"Download link (expires in 1 hour): {download_url}\n\n"
+					"If you did not request this export, you can ignore this email."
+				)
+				current_app.extensions['mail'].send(msg)
+			except Exception as mail_error:
+				debug_log(f"Export completed but email delivery failed: {mail_error}")
+
+			return {'status': 'completed', 'job_id': job.export_id}
+		except Exception as e:
+			db.session.rollback()
+			for key in persisted_csv_keys:
+				_safe_export_delete('s3' if S3_ENABLED else 'local', key)
+			_safe_export_delete('s3' if S3_ENABLED else 'local', persisted_zip_key)
+			job = ExportJob.query.filter_by(export_id=data['export_id']).first()
+			if job:
+				job.status = 'failed'
+				job.error_message = str(e)[:255]
+				job.completed_at = _utc_now()
+				try:
+					db.session.commit()
+				except Exception:
+					db.session.rollback()
+			debug_log(f"Export generation failed: {e}")
+			return {'status': 'failed', 'error': str(e)}
+		finally:
+			for tmp_path in temp_paths:
+				try:
+					if os.path.exists(tmp_path):
+						os.remove(tmp_path)
+				except Exception:
+					pass
+
+@views.route('/api/export/request', methods=['POST'])
+@login_required
+def api_export_request():
+	try:
+		status = _export_status_payload(current_user.uid)
+		if status['active_job']:
+			return jsonify({'success': False, 'error': 'An export is already in progress.'}), 409
+		if status['cooldown_remaining_seconds'] > 0:
+			return jsonify({
+				'success': False,
+				'error': f"Please wait {status['cooldown_remaining_seconds']} seconds before requesting another export."
+			}), 429
+
+		job = ExportJob(
+			uid=current_user.uid,
+			status='queued',
+			storage_type='s3' if S3_ENABLED else 'local',
+			requested_at=_utc_now(),
+		)
+		db.session.add(job)
+		db.session.commit()
+
+		generate_export_csv.delay({
+			'export_id': job.export_id,
+			'uid': current_user.uid,
+			'username': current_user.username,
+			'email': current_user.email,
+		})
+
+		return jsonify({'success': True, 'message': 'Export job queued.'}), 202
+	except Exception as e:
+		db.session.rollback()
+		debug_log(f"Error queuing export request: {e}")
+		return jsonify({'success': False, 'error': 'Failed to queue export job.'}), 500
+
+@views.route('/api/export/latest-status', methods=['GET'])
+@login_required
+def api_export_latest_status():
+	try:
+		return jsonify({'success': True, **_export_status_payload(current_user.uid)}), 200
+	except Exception as e:
+		debug_log(f"Error checking export status: {e}")
+		return jsonify({'success': False, 'error': 'Failed to load export status.'}), 500
+
+@views.route('/api/export/latest-download', methods=['GET'])
+@login_required
+def api_export_latest_download():
+	try:
+		_cleanup_expired_exports(current_user.uid)
+		job = _latest_downloadable_export(current_user.uid)
+		if not job:
+			flash('No completed export is available. Request a new export first.', 'warning')
+			return redirect(url_for('views.profile'))
+
+		if job.storage_type == 's3':
+			presigned_url = s3_client.generate_presigned_url(
+				'get_object',
+				Params={'Bucket': S3_BUCKET_NAME, 'Key': S3_PREFIX + job.zip_key},
+				ExpiresIn=60
+			)
+			return redirect(presigned_url)
+
+		if not os.path.exists(job.zip_key):
+			job.status = 'expired'
+			job.cleaned_at = _utc_now()
+			db.session.commit()
+			flash('Latest export has expired. Request a new export.', 'warning')
+			return redirect(url_for('views.profile'))
 
 		return send_file(
-			zip_buffer,
+			job.zip_key,
 			as_attachment=True,
-			download_name=file_name,
+			download_name=os.path.basename(job.zip_key),
 			mimetype='application/zip'
 		)
-		
 	except Exception as e:
-		debug_log(f"Export error: {e}")
-		flash(f'Export failed: {str(e)}', 'error')
-		return redirect(url_for('views.index'))
-	finally:
-		if acquired_export_lock:
-			with export_locks_guard:
-				active_export_users.discard(current_user.uid)
+		debug_log(f"Error downloading export: {e}")
+		flash('Failed to download export.', 'error')
+		return redirect(url_for('views.profile'))
+
+@views.route('/export/download/<token>', methods=['GET'])
+def export_download_token(token):
+	try:
+		payload = s.loads(token, salt=EXPORT_DOWNLOAD_SALT, max_age=EXPORT_TTL_SECONDS + 300)
+	except SignatureExpired:
+		return Response("This export link has expired. Request a new export from your profile page.", status=410)
+	except BadTimeSignature:
+		return Response("Invalid export link.", status=400)
+
+	uid = payload.get('uid')
+	export_id = payload.get('export_id')
+	if uid is None or export_id is None:
+		return Response("Invalid export link.", status=400)
+
+	try:
+		_cleanup_expired_exports(uid)
+		job = ExportJob.query.filter_by(export_id=export_id, uid=uid).first()
+		if (not job) or (job.status != 'completed') or (not job.expires_at) or (job.expires_at <= _utc_now()) or (not job.zip_key):
+			return Response("This export is no longer available. Request a new export from your profile page.", status=410)
+
+		if job.storage_type == 's3':
+			presigned_url = s3_client.generate_presigned_url(
+				'get_object',
+				Params={'Bucket': S3_BUCKET_NAME, 'Key': S3_PREFIX + job.zip_key},
+				ExpiresIn=60
+			)
+			return redirect(presigned_url)
+
+		if not os.path.exists(job.zip_key):
+			job.status = 'expired'
+			job.cleaned_at = _utc_now()
+			db.session.commit()
+			return Response("This export is no longer available. Request a new export from your profile page.", status=410)
+
+		return send_file(
+			job.zip_key,
+			as_attachment=True,
+			download_name=os.path.basename(job.zip_key),
+			mimetype='application/zip'
+		)
+	except Exception as e:
+		debug_log(f"Error downloading export from email link: {e}")
+		return Response("Failed to download export.", status=500)
 
 @views.route('/best_guess', methods=['POST'])
 @login_required
 def best_guess():
 	# Ensure data is loaded before using global variables
 	ensure_data_loaded()
+
+	def is_unresolved_text(value):
+		if value is None:
+			return True
+		val = str(value).strip()
+		return val == '' or val in ['Unknown', 'NA']
 	
 	bg_type = request.form.get('BG_Match_Set').strip()
 	replace_type = request.form.get('BG_Replace').strip()
@@ -3162,8 +3559,10 @@ def best_guess():
 																			 casting_player=match.p2).filter( Play.action.in_(['Land Drop', 'Casts']) )]
 				match.p1_subarch = modo.get_limited_subarch(cards1)
 				match.p2_subarch = modo.get_limited_subarch(cards2)
-				match.p1_arch = 'Limited'
-				match.p2_arch = 'Limited'
+				if is_unresolved_text(match.p1_arch):
+					match.p1_arch = 'Limited'
+				if is_unresolved_text(match.p2_arch):
+					match.p2_arch = 'Limited'
 				lim_count += 1
 		if (bg_type == 'Constructed Only') or (bg_type == 'All Matches'):
 			matches = all_matches.filter( Match.format.in_(options['Constructed Formats']) )
@@ -3182,39 +3581,50 @@ def best_guess():
 				con_count += 1
 
 	if replace_type == 'Replace NA':
-		all_matches = all_matches.filter( (Match.p1_subarch.in_(['Unknown', 'NA'])) | (Match.p2_subarch.in_(['Unknown', 'NA'])) )
+		all_matches = all_matches.filter(
+			or_(
+				Match.p1_subarch.in_(['Unknown', 'NA']),
+				Match.p2_subarch.in_(['Unknown', 'NA']),
+				Match.p1_subarch.is_(None),
+				func.trim(Match.p1_subarch) == '',
+				Match.p2_subarch.is_(None),
+				func.trim(Match.p2_subarch) == ''
+			)
+		)
 		debug_log(f"All matches: {all_matches.count()}")
 		if (bg_type == 'Limited Only') or (bg_type == 'All Matches'):
 			matches = all_matches.filter( Match.format.in_(options['Limited Formats']) )
 			debug_log(f"Matches1: {matches.count()}")
 			for match in matches:
-				if match.p1_subarch in ['Unknown', 'NA']:
+				if is_unresolved_text(match.p1_subarch):
 					cards1 = [play.primary_card for play in Play.query.filter_by(uid=current_user.uid, 
 																				 match_id=match.match_id, 
 																				 casting_player=match.p1).filter( Play.action.in_(['Land Drop', 'Casts']) )]
 					match.p1_subarch = modo.get_limited_subarch(cards1)
-					match.p1_arch = 'Limited'
+					if is_unresolved_text(match.p1_arch):
+						match.p1_arch = 'Limited'
 					lim_count += 1
-				if match.p2_subarch in ['Unknown', 'NA']:
+				if is_unresolved_text(match.p2_subarch):
 					cards2 = [play.primary_card for play in Play.query.filter_by(uid=current_user.uid, 
 																				 match_id=match.match_id, 
 																				 casting_player=match.p2).filter( Play.action.in_(['Land Drop', 'Casts']) )]
 					match.p2_subarch = modo.get_limited_subarch(cards2)
-					match.p2_arch = 'Limited'
+					if is_unresolved_text(match.p2_arch):
+						match.p2_arch = 'Limited'
 					lim_count += 1
 		if (bg_type == 'Constructed Only') or (bg_type == 'All Matches'):
 			matches = all_matches.filter( Match.format.in_(options['Constructed Formats']) )
 			debug_log(f"Matches2: {matches.count()}")
 			for match in matches:
 				yyyy_mm = match.date[0:4] + "-" + match.date[5:7]
-				if match.p1_subarch in ['Unknown', 'NA']:
+				if is_unresolved_text(match.p1_subarch):
 					cards1 = [play.primary_card for play in Play.query.filter_by(uid=current_user.uid, 
 																				 match_id=match.match_id, 
 																				 casting_player=match.p1).filter( Play.action.in_(['Land Drop', 'Casts']) )]
 					p1_data = modo.closest_list(set(cards1),all_decks,yyyy_mm)
 					match.p1_subarch = p1_data[0]
 					con_count += 1
-				if match.p2_subarch in ['Unknown', 'NA']:
+				if is_unresolved_text(match.p2_subarch):
 					cards2 = [play.primary_card for play in Play.query.filter_by(uid=current_user.uid, 
 																				 match_id=match.match_id, 
 																				 casting_player=match.p2).filter( Play.action.in_(['Land Drop', 'Casts']) )]
@@ -3233,7 +3643,7 @@ def best_guess():
 		return_str += 'es'
 	return_str += '.'
 	flash(return_str, category='success')
-	return redirect(url_for('views.table', table_name='matches', page_num=1))
+	return redirect(request.referrer or url_for('views.table', table_name='matches', page_num=1))
 
 @views.route('/profile')
 @login_required
@@ -4940,8 +5350,6 @@ def generate_game_data_dashboard(filtered_query, filters):
 
 # Initialize these variables as None - they'll be loaded on demand
 options = None
-active_export_users = set()
-export_locks_guard = threading.Lock()
 
 @views.route('/api/table-status', methods=['GET'])
 @login_required
@@ -4953,28 +5361,14 @@ def api_table_status():
 		draft_count = Draft.query.filter_by(uid=current_user.uid).count()
 		removed_count = Removed.query.filter_by(uid=current_user.uid).count()
 		game_actions_count = GameActions.query.filter_by(uid=current_user.uid).count()
-		
-		# Check if there are GameActions with valid match_ids (exist in Match table)
-		valid_game_actions_count = 0
-		if game_actions_count > 0:
-			# Get all match_ids from GameActions for current user
-			game_action_match_ids = db.session.query(GameActions.match_id).filter_by(uid=current_user.uid).distinct().all()
-			game_action_match_ids = [row[0] for row in game_action_match_ids]
-			
-			# Check how many of these match_ids exist in Match table
-			if game_action_match_ids:
-				valid_match_ids = db.session.query(Match.match_id).filter(
-					Match.uid == current_user.uid,
-					Match.match_id.in_(game_action_match_ids)
-				).all()
-				valid_match_ids = [row[0] for row in valid_match_ids]
-				
-				# Count GameActions records that have valid match_ids
-				if valid_match_ids:
-					valid_game_actions_count = GameActions.query.filter(
-						GameActions.uid == current_user.uid,
-						GameActions.match_id.in_(valid_match_ids)
-					).count()
+		actionable_missing_winners_count = count_actionable_missing_winners(
+			current_user.uid,
+			current_user.username
+		)
+		actionable_draft_id_count = count_actionable_draft_id_matches(
+			current_user.uid,
+			current_user.username
+		)
 		
 		# Check if archive directory has files for reprocessing
 		archive_files_count = 0
@@ -4987,24 +5381,18 @@ def api_table_status():
 					log_type = get_logtype_from_filename(filename)
 					if log_type in ['GameLog', 'DraftLog']:
 						archive_files_count += 1
+
+		status = compute_sidebar_status_for_user(current_user.uid)
 		
 		return jsonify({
 			'match_count': match_count,
 			'draft_count': draft_count,
 			'removed_count': removed_count,
 			'game_actions_count': game_actions_count,
+			'actionable_missing_winners_count': actionable_missing_winners_count,
+			'actionable_draft_id_count': actionable_draft_id_count,
 			'archive_files_count': archive_files_count,
-			'status': {
-				'matches_enabled': match_count > 0,
-				'best_guess_enabled': match_count > 0,
-				'drafts_enabled': draft_count > 0,
-				'ignored_matches_enabled': removed_count > 0,
-				'missing_winners_enabled': valid_game_actions_count > 0,
-				'draft_ids_enabled': match_count > 0 and draft_count > 0,
-				'reprocess_enabled': archive_files_count > 0,
-				'export_enabled': match_count > 0 or draft_count > 0,
-				'dashboards_enabled': match_count > 0 or draft_count > 0
-			}
+			'status': status
 		})
 	except Exception as e:
 		debug_log(f"Error checking table status: {str(e)}")
@@ -5070,7 +5458,7 @@ def manual_refresh_reference_cache():
 		return jsonify({
 			'success': True,
 			'message': 'Reference caches refreshed.',
-			'refreshed_at_utc': datetime.datetime.utcnow().isoformat() + 'Z',
+			'refreshed_at_utc': datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
 			'stats': stats,
 		}), 200
 	except Exception as e:
@@ -5283,9 +5671,6 @@ def api_card_image():
 @login_required
 def api_match_details(match_id):
 	"""Get detailed match information for revision modal"""
-	if request.headers.get('X-Requested-By') != 'MTGO-Tracker':
-		return jsonify({'error': 'Forbidden'}), 403
-	
 	try:
 		# Get match data
 		match = Match.query.filter_by(
@@ -5326,9 +5711,6 @@ def api_match_details(match_id):
 @login_required
 def api_match_revise():
 	"""Revise a single match"""
-	if request.headers.get('X-Requested-By') != 'MTGO-Tracker':
-		return jsonify({'error': 'Forbidden'}), 403
-	
 	try:
 		data = request.get_json()
 		if not data:
@@ -5370,10 +5752,10 @@ def api_match_revise():
 				if p2_arch_in: match.p2_arch = p2_arch_in
 				if p2_subarch_in: match.p2_subarch = p2_subarch_in
 			else:
-				if p1_arch_in: match.p1_arch = p2_arch_in
-				if p1_subarch_in: match.p1_subarch = p2_subarch_in
-				if p2_arch_in: match.p2_arch = p1_arch_in
-				if p2_subarch_in: match.p2_subarch = p1_subarch_in
+				if p2_arch_in: match.p1_arch = p2_arch_in
+				if p2_subarch_in: match.p1_subarch = p2_subarch_in
+				if p1_arch_in: match.p2_arch = p1_arch_in
+				if p1_subarch_in: match.p2_subarch = p1_subarch_in
 			
 			if format_in: match.format = format_in
 			if limited_format_in: match.limited_format = limited_format_in
@@ -5395,9 +5777,6 @@ def api_match_revise():
 @login_required
 def api_match_revise_multi():
 	"""Revise multiple matches"""
-	if request.headers.get('X-Requested-By') != 'MTGO-Tracker':
-		return jsonify({'error': 'Forbidden'}), 403
-	
 	try:
 		data = request.get_json()
 		if not data:
@@ -5505,9 +5884,6 @@ def api_match_revise_multi():
 @login_required
 def api_match_remove():
 	"""Remove matches (with optional ignore)"""
-	if request.headers.get('X-Requested-By') != 'MTGO-Tracker':
-		return jsonify({'error': 'Forbidden'}), 403
-	
 	try:
 		data = request.get_json()
 		if not data:
@@ -5522,22 +5898,34 @@ def api_match_remove():
 		match_count = 0
 		game_count = 0
 		play_count = 0
+		game_actions_count = 0
+		cards_played_count = 0
+		affected_draft_ids = set()
 		proc_dt = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
 		
 		for match_id in match_ids:
 			# Get match date BEFORE deletion (needed for ignored list)
 			match_record = Match.query.filter_by(uid=current_user.uid, match_id=match_id).first()
 			mtime = match_record.date if match_record else None
+			match_rows = Match.query.filter_by(uid=current_user.uid, match_id=match_id).all()
+			for row in match_rows:
+				draft_id = (row.draft_id or '').strip() if isinstance(row.draft_id, str) else row.draft_id
+				if draft_id and draft_id != 'NA':
+					affected_draft_ids.add(draft_id)
 			
 			# Count records before deletion
-			match_count += Match.query.filter_by(uid=current_user.uid, match_id=match_id).count()
+			match_count += len(match_rows)
 			game_count += Game.query.filter_by(uid=current_user.uid, match_id=match_id).count()
 			play_count += Play.query.filter_by(uid=current_user.uid, match_id=match_id).count()
+			game_actions_count += GameActions.query.filter_by(uid=current_user.uid, match_id=match_id).count()
+			cards_played_count += CardsPlayed.query.filter_by(uid=current_user.uid, match_id=match_id).count()
 			
 			# Delete records
 			Match.query.filter_by(uid=current_user.uid, match_id=match_id).delete()
 			Game.query.filter_by(uid=current_user.uid, match_id=match_id).delete()
 			Play.query.filter_by(uid=current_user.uid, match_id=match_id).delete()
+			GameActions.query.filter_by(uid=current_user.uid, match_id=match_id).delete()
+			CardsPlayed.query.filter_by(uid=current_user.uid, match_id=match_id).delete()
 			
 			# Add to ignored list if requested
 			if remove_type == 'Ignore' and mtime:
@@ -5546,13 +5934,20 @@ def api_match_remove():
 		
 		try:
 			db.session.commit()
+			for draft_id in sorted(affected_draft_ids):
+				update_draft_wins(current_user.uid, current_user.username, draft_id)
 			return jsonify({
 				'success': True,
-				'message': f'{match_count} Matches removed, {game_count} Games removed, {play_count} Plays removed.',
+				'message': (
+					f'{match_count} Matches removed, {game_count} Games removed, {play_count} Plays removed, '
+					f'{game_actions_count} Game Actions removed, {cards_played_count} Cards Played removed.'
+				),
 				'removed_counts': {
 					'matches': match_count,
 					'games': game_count,
-					'plays': play_count
+					'plays': play_count,
+					'game_actions': game_actions_count,
+					'cards_played': cards_played_count
 				}
 			})
 		except Exception as e:

@@ -134,6 +134,13 @@ def create_app():
 		if env in ('development', 'local') and not is_db_cli_command:
 			db.create_all()
 
+		# Startup housekeeping: remove any existing export artifacts from previous runs.
+		try:
+			from modules.views import cleanup_export_artifacts_on_startup
+			cleanup_export_artifacts_on_startup()
+		except Exception as e:
+			print(f"Warning: Startup export cleanup failed: {e}")
+
 	login_manager.login_view = 'views.login'
 	login_manager.init_app(app)
 
