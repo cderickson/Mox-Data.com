@@ -211,12 +211,6 @@
                   <span class="nav-text">Import GameLogs</span>
                 </a>
               </li>
-              <!-- <li class="nav-item">
-                <a href="#" class="nav-link" onclick="showImportAppModal()">
-                  <i class="fas fa-download nav-icon"></i>
-                  <span class="nav-text">Import from MTGO-Tracker</span>
-                </a>
-              </li> -->
               <li class="nav-item">
                 <a href="#" class="nav-link" onclick="showLoadRevisionsModal()">
                   <i class="fas fa-history nav-icon"></i>
@@ -557,63 +551,6 @@
             <button type="submit" class="button primary" form="importForm" id="importSubmitBtn" disabled>
               <i class="fas fa-check"></i>
               Import Files
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Import App Modal -->
-      <div id="ImportAppModal" class="modal">
-        <div class="modal-content">
-          <div class="modal-header">
-            <div>
-              <h3>Import from MTGO-Tracker (Windows)</h3>
-              <p>Upload your MTGO-Tracker save files for processing</p>
-            </div>
-            <button type="button" class="modal-close" onclick="hideImportAppModal()">
-              <i class="fas fa-times"></i>
-            </button>
-          </div>
-
-          <div class="modal-body">
-            <form id="importAppForm" action="/load_from_app" method="POST" enctype="multipart/form-data">            
-              <div>
-                <label class="form-label">Select MTGO-Tracker Save Files</label>
-                <input type="file" class="form-input" name="folder" multiple required id="importAppFileInput" onchange="validateImportAppFiles()">
-                <small id="importAppHelpText" >Select the ALL_DATA, DRAFTS_TABLE, and PICKS_TABLE files from your MTGO-Tracker save folder.</small>
-              </div>
-              
-              <div class="message-box standard">
-                <h4><i class="fas fa-info-circle"></i> How to Select Files</h4>
-                <ol>
-                  <li>Navigate to your <code >MTGO-Tracker/save/</code> folder</li>
-                  <li>Hold <kbd >Ctrl</kbd> (or <kbd >Cmd</kbd> on Mac) and select these files:</li>
-                  <ul>
-                    <li><code >ALL_DATA</code></li>
-                    <li><code >DRAFTS_TABLE</code></li>
-                    <li><code >PICKS_TABLE</code></li>
-                  </ul>
-                </ol>
-              </div>
-
-              <div class="message-box warning">
-                <h4><i class="fas fa-exclamation-triangle"></i> Warning</h4>
-                <ul>
-                  <li>Records added <strong>will not</strong> have an associated raw file archived and will not be able to be re-processed.</li>
-                  <li>This will overwrite any manual revisions and is <strong>not reversible</strong>.</li>
-                </ul>
-              </div>
-
-            </form>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="button secondary" onclick="hideImportAppModal()">
-              <i class="fas fa-times"></i>
-              Cancel
-            </button>
-            <button type="submit" class="button primary" form="importAppForm" id="importAppSubmitBtn" disabled>
-              <i class="fas fa-check"></i>
-              Import Data
             </button>
           </div>
         </div>
@@ -991,27 +928,6 @@
       if (submitBtn) submitBtn.disabled = true;
     }
     
-    function showImportAppModal() {
-      const modal = document.getElementById('ImportAppModal');
-      modal.style.display = 'flex';
-      document.body.style.overflow = 'hidden';
-      
-      // Reset form and validation when modal opens
-      document.getElementById('importAppForm').reset();
-      validateImportAppFiles();
-    }
-    
-    function hideImportAppModal() {
-      const modal = document.getElementById('ImportAppModal');
-      modal.style.display = 'none';
-      document.body.style.overflow = 'auto';
-      
-      // Reset form and help text
-      document.getElementById('importAppForm').reset();
-      const helpText = document.getElementById('importAppHelpText');
-      helpText.innerHTML = 'Select the ALL_DATA, DRAFTS_TABLE, and PICKS_TABLE files from your MTGO-Tracker save folder.';
-    }
-    
     function showLoadRevisionsModal() {
       const modal = document.getElementById('LoadRevisionsModal');
       modal.style.display = 'flex';
@@ -1276,53 +1192,6 @@
       }
     });
        
-    // File validation for ImportApp modal
-    function validateImportAppFiles() {
-      const fileInput = document.getElementById('importAppFileInput');
-      const submitBtn = document.getElementById('importAppSubmitBtn');
-      const helpText = document.getElementById('importAppHelpText');
-      
-      const requiredFiles = ['ALL_DATA', 'DRAFTS_TABLE', 'PICKS_TABLE'];
-      const selectedFiles = Array.from(fileInput.files);
-      
-      if (selectedFiles.length === 0) {
-        helpText.innerHTML = 'Select the ALL_DATA, DRAFTS_TABLE, and PICKS_TABLE files from your MTGO-Tracker save folder.';
-        submitBtn.disabled = true;
-        return;
-      }
-      
-      // Extract filenames (handle paths from different OS)
-      const selectedFilenames = selectedFiles.map(file => {
-        // Handle both forward and backward slashes
-        return file.name.split('/').pop().split('\\').pop();
-      });
-      
-      // Check if we have exactly the required files
-      const foundFiles = requiredFiles.filter(required => 
-        selectedFilenames.includes(required)
-      );
-      const missingFiles = requiredFiles.filter(required => 
-        !selectedFilenames.includes(required)
-      );
-      
-      let isValid = foundFiles.length === 3 && missingFiles.length === 0;
-      
-      // Update message and button state
-      if (isValid) {
-        helpText.innerHTML = '<i class="fas fa-check-circle"></i> All required files selected.';
-        helpText.style.color = '#22c562';
-        submitBtn.disabled = false;
-      } else {
-        if (missingFiles.length > 0) {
-          helpText.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Missing: ${missingFiles.join(', ')}.`;
-        } else {
-          helpText.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Please select exactly 3 files.';
-        }
-        helpText.style.color = '#ef4444';
-        submitBtn.disabled = true;
-      }
-    }
-    
     function validateImportFiles() {
       const fileInput = document.getElementById('importFileInput');
       const submitBtn = document.getElementById('importSubmitBtn');

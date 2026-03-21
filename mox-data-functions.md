@@ -1456,3 +1456,622 @@ This ensures export artifacts do not persist across app restarts.
     - Export request UI and status text container
   - `static/profile.js`
     - request action + status polling/render logic
+
+---
+
+### Operational Notes
+
+Key environment/config values for export behavior:
+
+- `EXPORT_COOLDOWN_SECONDS`
+  - per-user minimum interval between export requests
+  - default: `86400` (24 hours)
+- `EXPORT_DOWNLOAD_SALT`
+  - salt used when signing export download tokens
+  - should be a long, random, private secret
+- `URL_SAFETIMEDSERIALIZER`
+  - serializer secret key used for signed tokens in multiple app flows
+  - must be stable across app/worker processes
+- `APP_BASE_URL`
+  - public base URL used to build absolute download links in export emails
+  - examples:
+    - production: `https://mox-data.com`
+    - local testing with exposed host: `http://localhost:8000`
+- `S3_BUCKET_NAME`
+  - when set, export artifacts are stored in S3
+  - when unset, local filesystem export storage is used
+- `S3_PREFIX` (optional)
+  - prefix prepended to S3 object keys
+  - normalized with trailing `/` when present
+- `AWS_REGION` (S3 mode)
+  - region used by S3 client initialization
+
+Operational recommendations:
+
+- Keep `EXPORT_DOWNLOAD_SALT` and `URL_SAFETIMEDSERIALIZER` out of source control.
+- Ensure Flask app and Celery worker share the same env values.
+- Set `APP_BASE_URL` explicitly in production to avoid malformed email links.
+- If you rotate signing secrets, existing emailed links become invalid.
+- Startup cleanup removes prior export artifacts; users should request a fresh export after restarts.
+
+## Analytics Dashboards (`/dashboards`)
+
+### Purpose
+
+Provides interactive analytics views for the logged-in user across four dashboard types:
+
+- Match Performance
+- Card Analysis
+- Opponent Analysis
+- Game Statistics
+
+Users generate dashboards from the menu, apply filters, and render KPI cards, charts, and tables from user-scoped match/game/play data.
+
+---
+
+### End-to-End Flow (Validated)
+
+1. User opens `GET /dashboards`.
+2. Backend route `dashboards()` renders `templates/dashboards.html` (`@login_required`).
+3. Frontend initializes on `DOMContentLoaded`:
+   - loads filter dropdown options via `GET /filter_options`
+   - applies dashboard-type filter UI behavior
+   - generates the default dashboard
+4. User selects dashboard type + filters and clicks **Generate Dashboard**.
+5. Frontend calls `POST /api/dashboard/generate` with:
+   - `dashboard_type`
+   - `filters`
+6. Backend:
+   - validates request payload
+   - normalizes numeric filters (`opponentThreshold`, `heroMulls`, `oppMulls`)
+   - applies user-scoped base query + dashboard filters
+   - dispatches to the matching generator function
+7. Backend returns dashboard payload (`metrics`, `charts`, `tables`, optional `table_grids`).
+8. Frontend renders cards/tables/charts and updates loading/error states.
+
+---
+
+### Routes and API Endpoints
+
+- Page route:
+  - `GET /dashboards` -> template render
+- Filter options:
+  - `GET /filter_options`
+- Cascading filter refresh:
+  - `POST /api/dashboard/filtered-options`
+- Dashboard generation:
+  - `POST /api/dashboard/generate`
+
+All are authenticated with `@login_required`.
+
+---
+
+### Dashboard Types and Generators
+
+Backend dispatch (`api_dashboard_generate`) maps to:
+
+- `match-performance` -> `generate_match_performance_dashboard(...)`
+- `card-analysis` -> `generate_card_analysis_dashboard(...)`
+- `opponent-analysis` -> `generate_opponent_analysis_dashboard(...)`
+- `game-data` -> `generate_game_data_dashboard(...)`
+
+Shared filtering helpers:
+
+- `apply_dashboard_filters(...)` (match query)
+- `apply_dashboard_filters_to_play_query(...)`
+- `apply_dashboard_filters_to_game_query(...)`
+
+---
+
+### Filter Behavior and Validation
+
+Common filters:
+
+- `card`, `opponent`, `format`, `deck`, `oppDeck`
+- `startDate`, `endDate`
+- dashboard-specific:
+  - `perspective` (card analysis)
+  - `opponentThreshold` (opponent analysis)
+  - `heroMulls`, `oppMulls` (game statistics)
+  - `chartCasting` (game chart perspective toggle)
+
+Validation hardening:
+
+- numeric filter parsing is centralized in `api_dashboard_generate`
+- invalid numeric values now return clean `400` errors (not `500`)
+- invalid payload shape also returns clean `400`
+
+---
+
+### Data Scope and Security Boundary
+
+Core constraints:
+
+- all dashboard queries are scoped to the current user:
+  - `uid == current_user.uid`
+  - hero perspective for match rows (`Match.p1 == current_user.username`)
+- no custom header is used as a security boundary
+
+This prevents cross-user data leakage and keeps dashboard stats tied to the authenticated account.
+
+---
+
+### Rendering Contract
+
+Frontend (`templates/dashboards.html`) expects:
+
+- `metrics`: KPI card list
+- `charts`: chart definitions (may be empty by design)
+- `tables`: standalone tables
+- `table_grids`: grouped table card layouts
+
+Note:
+
+- Opponent Analysis intentionally returns no chart in the normal success path (`charts: []`) based on current product UX decision.
+
+---
+
+### Error and Loading UX
+
+Behavior:
+
+- dashboard generation shows loading state and hides prior results
+- errors render a visible inline error panel with retry action
+- chart-casting updates now use the same visible error/reset behavior as full generation (not console-only)
+
+---
+
+### Hardening Changes Applied During Validation
+
+1. **Duplicate match inflation fix (high)**
+   - card filter in `apply_dashboard_filters(...)` now uses correlated `EXISTS` instead of join-expansion
+   - avoids duplicate match rows when a card appears multiple times in a match
+2. **Security boundary cleanup**
+   - removed reliance on `X-Requested-By` checks for dashboard/filter APIs
+3. **Numeric parsing hardening**
+   - invalid `opponentThreshold` / `heroMulls` / `oppMulls` now return `400`
+4. **`/filter_options` response-shape consistency**
+   - endpoint now consistently returns JSON via `jsonify(...)`
+5. **Chart-casting error UX consistency**
+   - failures now show the same user-visible error panel and reset loading state
+6. **Residual HTML injection surface reduction**
+   - dashboard table text from DB/user content is escaped before HTML embedding via `sanitize_dashboard_text(...)`
+
+---
+
+### Related Components
+
+- Backend:
+  - `modules/views.py`
+    - `dashboards`
+    - `filter_options`
+    - `api_dashboard_filtered_options`
+    - `api_dashboard_generate`
+    - `apply_dashboard_filters*`
+    - `generate_match_performance_dashboard`
+    - `generate_card_analysis_dashboard`
+    - `generate_opponent_analysis_dashboard`
+    - `generate_game_data_dashboard`
+- Frontend:
+  - `templates/dashboards.html`
+    - dashboard controls, fetch calls, rendering, loading/error states
+  - `static/dashboards.css`
+    - dashboard visual styling
+
+## Table Pages (`/table`) — Matches and Drafts Display
+
+### Purpose
+
+Displays paginated database records for:
+
+- `Matches` (`/table/matches/<page>`)
+- `Drafts` (`/table/drafts/<page>`)
+
+This section covers display/load flow only (data retrieval, pagination, rendering).  
+`Revise Row(s)` / `Remove Row(s)` are intentionally excluded because those flows are documented separately.
+
+---
+
+### End-to-End Flow (Validated)
+
+1. User opens a table page:
+   - `GET /table/matches/<page_num>` or
+   - `GET /table/drafts/<page_num>`
+2. Backend route `table(table_name, page_num)` renders `templates/tables.html`.
+3. Frontend initializes `TableManager` (`static/tables.js`) using hidden `#tname` and page context.
+4. For top-level Matches/Drafts pages, frontend now forces API-driven rendering:
+   - `GET /api/table/<table_name>/<page_num>`
+5. Backend route `api_table_data(...)` returns paginated JSON payload:
+   - `data`, `total_count`, `total_pages`, `page_num`, `has_previous`, `has_next`
+6. Frontend renders rows into the table body, updates pagination controls, and applies selection/drill interactions.
+7. User clicks `Previous`/`Next`; frontend calls same API for the new page and re-renders.
+
+---
+
+### Routes and API Endpoints
+
+Page routes:
+
+- `GET /table/<table_name>/<page_num>` -> `table(...)`
+
+API route:
+
+- `GET /api/table/<table_name>/<int:page_num>` -> `api_table_data(...)`
+
+Both are protected by `@login_required`.
+
+---
+
+### Query Scope and Ordering
+
+`Matches`:
+
+- scope:
+  - `Match.uid == current_user.uid`
+  - `Match.p1 == current_user.username` (hero-perspective row)
+- ordering:
+  - `Match.date DESC`
+
+`Drafts`:
+
+- scope:
+  - `Draft.uid == current_user.uid`
+- ordering:
+  - `Draft.date DESC`
+
+---
+
+### Pagination Behavior
+
+Pagination constants:
+
+- `page_size = 20`
+
+API payload includes:
+
+- `page_num`
+- `total_pages`
+- `total_count`
+- `has_previous`
+- `has_next`
+
+Empty-table hardening:
+
+- `api_table_data(...)` now clamps `total_pages` to at least `1`
+- this prevents `/api/table/<table>/1` from returning `400` when dataset is empty
+- empty page now returns valid response with `data: []`
+
+---
+
+### Rendering Path and Formatting
+
+Primary renderer:
+
+- `static/tables.js`:
+  - `loadTableData(...)`
+  - `renderTable()`
+  - `getColumnsForTable(...)`
+
+Matches format display:
+
+- uses JS formatter `formatDisplayForMatch(...)` to conditionally render:
+  - `{format} - {limited_format}` when applicable
+
+Draft format display:
+
+- JS renderer now uses:
+  - `row.draft_format ?? row.format ?? 'NA'`
+- this fixes API-rendered Draft rows that previously referenced `row.format` only.
+
+---
+
+### Loading / Empty / Error States
+
+Loading:
+
+- `showProcessingModal('Loading table data...')` during API fetch
+
+Success:
+
+- rows rendered into `.modern-table tbody`
+- pagination updated from API response
+
+Empty:
+
+- table body shows `No data available` row when API returns empty `data`
+
+Error:
+
+- fetch failures surface `Failed to load table data`
+
+---
+
+### Security Boundary
+
+Primary protections:
+
+- `@login_required` on page + API endpoints
+- user-scoped database filters (`uid`, plus hero perspective for Matches)
+
+No cross-user rows are returned in these table views.
+
+---
+
+### Hardening Changes Applied During Validation
+
+1. **Draft format mismatch fix**
+   - corrected JS Draft column mapping from `row.format` to `row.draft_format` fallback chain
+2. **Empty dataset pagination fix**
+   - API now returns valid page-1 response for empty tables
+3. **Dual render-path divergence reduction**
+   - top-level Matches/Drafts pages now force API-driven rendering to keep display logic consistent with one path
+
+---
+
+### Related Components
+
+- Backend:
+  - `modules/views.py`
+    - `table`
+    - `api_table_data`
+- Frontend:
+  - `templates/tables.html`
+    - table shell, headers, pagination controls
+  - `static/tables.js`
+    - `TableManager`
+    - `loadTableData`
+    - `renderTable`
+    - `getColumnsForTable`
+    - `formatDisplayForMatch`
+
+## User Login (`/login`)
+
+### Purpose
+
+Authenticates an existing user account and establishes an application session, with optional persistent login via a **Remember me** choice.
+
+Related login-page capabilities include:
+
+- resend confirmation email for unconfirmed accounts
+- reset password initiation
+
+---
+
+### End-to-End Flow (Validated)
+
+1. User opens `GET /login`.
+2. Backend route `login()` checks auth state:
+   - if already authenticated -> redirect to `/profile`
+   - otherwise render `templates/login.html`
+3. User submits login form (`POST /login`) with:
+   - `login_email`
+   - `login_pwd`
+   - optional `remember_me`
+4. Backend validates request fields.
+5. Backend looks up user by email (`Player` table).
+6. Backend verifies password hash (`check_password_hash`).
+7. Backend checks confirmation status:
+   - unconfirmed -> block login and render page with resend-confirmation UI
+8. On valid credentials + confirmed account:
+   - `login_user(user, remember=remember_me)`
+   - redirect to `/profile`
+
+---
+
+### Validation and Decision Flow
+
+`POST /login` server-side checks:
+
+1. missing email/password -> error flash + re-render
+2. invalid credentials -> generic error flash + re-render
+3. valid credentials but `is_confirmed == False` -> confirmation-required error + `not_confirmed=True`
+4. valid + confirmed -> login success + redirect
+
+Re-render behavior:
+
+- email is preserved for convenience
+- password field is intentionally left blank
+- remember-me checkbox state is preserved
+
+---
+
+### Session Behavior
+
+Login persistence is now user-controlled:
+
+- if **Remember me** checked:
+  - persistent login cookie is issued (`remember=True`)
+- if unchecked:
+  - standard non-persistent session cookie is used (`remember=False`)
+
+Current application config does not override session lifetime values in code for non-remember sessions.
+
+---
+
+### Login Page Adjacent Flows
+
+From `templates/login.html`:
+
+- **Send Confirmation Email**
+  - posts to `POST /send_confirmation_email`
+  - now requires only email client-side (no password requirement)
+- **Reset Password**
+  - modal posts to `POST /reset_pwd`
+  - always returns generic success message to avoid account enumeration
+
+These flows are adjacent to login UX but distinct from credential authentication itself.
+
+---
+
+### Security Boundary
+
+Primary protections:
+
+- password hashes verified server-side (`check_password_hash`)
+- authenticated session established through Flask-Login (`login_user`)
+- user restoration via SQLAlchemy session lookup in user loader (`db.session.get(Player, uid)`)
+
+Enumeration hardening applied to login auth path:
+
+- unknown-email and wrong-password cases now use the same generic credential error message.
+
+---
+
+### Hardening Changes Applied During Validation
+
+1. **Account enumeration reduction in login path**
+   - login now returns a unified invalid-credentials message for unknown email and wrong password
+2. **Password repopulation removed**
+   - login form no longer re-renders the submitted password value
+3. **Resend confirmation UX updated**
+   - frontend resend-confirmation action no longer requires password input
+4. **Remember-me policy made explicit**
+   - added checkbox and switched login call to `remember=remember_me`
+5. **Legacy SQLAlchemy user-loader warning resolved**
+   - replaced `Player.query.get(...)` with `db.session.get(Player, ...)`
+
+---
+
+### Related Components
+
+- Backend:
+  - `modules/views.py`
+    - `login`
+    - `send_confirmation_email`
+    - `reset_pwd`
+  - `app.py`
+    - Flask-Login setup
+    - `user_loader` (`db.session.get`)
+  - `modules/models.py`
+    - `Player` (`email`, `pwd`, `is_confirmed`)
+- Frontend:
+  - `templates/login.html`
+    - login form
+    - remember-me checkbox
+    - resend-confirmation and reset-password triggers
+
+## Load Report Email
+
+### Purpose
+
+Builds and emails a post-run summary report to the user after background load/reprocess tasks complete, using record-count values captured during task execution.
+
+The report provides a quick operational summary of:
+
+- new records loaded
+- updated/replaced records
+- skipped files/records (where applicable)
+- task completion timestamp
+
+---
+
+### Triggering Flows (Validated)
+
+Load report email generation is used after:
+
+- `process_logs`
+- `process_revisions_from_app`
+- `reprocess_logs`
+
+These run as Celery tasks and construct report content within Flask app context.
+
+---
+
+### End-to-End Flow (Validated)
+
+1. User action triggers one of the load/reprocess routes.
+2. Route enqueues Celery task with user metadata (email, uid, username).
+3. Task executes and accumulates counters in a `counts` dictionary.
+4. Task captures completion timestamps (`curr_date`, `curr_time`).
+5. Task writes a `TaskHistory` row:
+   - `submit_date`
+   - `complete_date`
+   - `task_type`
+   - `error_code` (when applicable)
+6. Task builds HTML report (`msg.html`) from counter values.
+7. Task sends report email to requesting user:
+   - subject: `MTGO-DB Load Report #<task_id>`
+8. Task logs email success/failure in debug logs.
+
+---
+
+### Routes / Task Mapping
+
+- `POST /load` -> `process_logs`
+- `POST /load_revisions_from_app` -> `process_revisions_from_app`
+- `POST /reprocess` -> `reprocess_logs`
+
+---
+
+### Report Content and Counters
+
+Each task has its own report table shape, but all are count-driven.
+
+Examples of count classes:
+
+- new records (`new_matches`, `new_games`, `new_plays`, `new_drafts`, `new_picks`)
+- updated/replaced records (`updated_*`, `*_replaced`, `matches_updated`, `drafts_updated`)
+- skipped categories (`*_skipped_*`)
+- processed file totals (`total_gamelogs`, `total_draftlogs`)
+
+Counter-to-report alignment hardening applied:
+
+- `process_logs`: now increments `plays_replaced` / `picks_replaced` when duplicates are encountered in those branches
+
+---
+
+### Failure / Email Behavior
+
+Failure hardening applied:
+
+- `reprocess_logs` no longer continues to send normal success-style reports after critical failures
+- it now:
+  - set `error_code`
+  - persist `TaskHistory`
+  - raise to mark Celery task as failed
+  - skip success report send when task failed
+
+Email-send resilience hardening applied:
+
+- load report email sending now uses `try/except` logging consistently across all active task flows
+- SMTP/send failures are logged without crashing unrelated task-finalization bookkeeping
+
+---
+
+### Presentation / HTML Consistency
+
+Report presentation fixes applied:
+
+- corrected malformed heading close tags (`</h3>`)
+- normalized revisions report title wording to explicitly indicate revisions flow
+- corrected missing paragraph close tag in reprocess report footer
+
+These changes reduce malformed HTML rendering risk in email clients and improve report clarity.
+
+---
+
+### Security and Scope
+
+Load reports are sent to the email supplied from authenticated user-triggered flows.
+
+Core protections:
+
+- task submission routes are user-scoped app flows
+- counters are generated from user-scoped processing operations
+- `TaskHistory` rows are tied to the initiating user (`uid`, `curr_username`)
+
+---
+
+### Related Components
+
+- Backend:
+  - `modules/views.py`
+    - `process_logs`
+    - `process_revisions_from_app`
+    - `reprocess_logs`
+    - trigger routes: `load`, `load_revisions_from_app`, `reprocess`
+  - `modules/models.py`
+    - `TaskHistory`
+- Frontend:
+  - `templates/base.html`
+    - forms/buttons that trigger load/reprocess routes

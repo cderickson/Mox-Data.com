@@ -21,6 +21,17 @@ class TableManager {
 
   async initialize() {
     try {
+      const pathParts = window.location.pathname.split('/').filter(Boolean);
+      const isTopLevelTablePage = (
+        pathParts.length === 3 &&
+        pathParts[0] === 'table' &&
+        pathParts[1] === this.tableName &&
+        !Number.isNaN(parseInt(pathParts[2], 10))
+      );
+      // Keep a single render path for top-level Matches/Drafts pages.
+      // This avoids server-render vs JS-render formatting drift.
+      const forceApiRender = isTopLevelTablePage && ['matches', 'drafts'].includes(this.tableName);
+
       // Matches table formatting needs limited format options.
       if (this.tableName === 'matches') {
         await this.loadInputOptions();
@@ -48,18 +59,26 @@ class TableManager {
           }
         } else {
           // Fallback to URL path parsing: /table/<table>/<page>
-          const parts = window.location.pathname.split('/').filter(Boolean);
-          if (parts.length === 3 && parts[0] === 'table') {
-            const maybePage = parseInt(parts[2], 10);
+          if (pathParts.length === 3 && pathParts[0] === 'table') {
+            const maybePage = parseInt(pathParts[2], 10);
             if (!Number.isNaN(maybePage)) this.currentPage = maybePage;
           }
         }
-        // We have pre-loaded data (drill-down mode), just set up interactions
-        this.setupEventListeners();
-        this.setupCardImageHover();
-        this.updateButtonStates();
-        this.setupPaginationForPreloadedData();
-        this.setupPaginationListeners();
+
+        if (forceApiRender) {
+          await this.loadTableData(this.currentPage);
+          this.setupEventListeners();
+          this.setupCardImageHover();
+          this.updateButtonStates();
+          this.setupPaginationListeners();
+        } else {
+          // We have pre-loaded data (drill-down mode), just set up interactions
+          this.setupEventListeners();
+          this.setupCardImageHover();
+          this.updateButtonStates();
+          this.setupPaginationForPreloadedData();
+          this.setupPaginationListeners();
+        }
       } else {
         // Load initial table data dynamically
         await this.loadTableData(this.currentPage);
@@ -340,10 +359,11 @@ class TableManager {
           const matchWins = row.match_wins ?? 'NA';
           const matchLosses = row.match_losses ?? 'NA';
           const matchScore = `${matchWins} - ${matchLosses}`;
+          const draftFormat = row.draft_format ?? row.format ?? 'NA';
         return [
           row.hero, row.player2, row.player3, row.player4,
           row.player5, row.player6, row.player7, row.player8,
-          matchScore, row.format, row.date
+          matchScore, draftFormat, row.date
         ];
         }
       case 'picks':

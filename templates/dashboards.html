@@ -577,21 +577,29 @@ async function generateDashboard() {
     
   } catch (error) {
     console.error('Error generating dashboard:', error);
-    
-    // Hide loading state and show error
-    document.getElementById('loadingState').style.display = 'none';
-    document.getElementById('dashboardResults').innerHTML = `
+    showDashboardError(error.message, 'generateDashboard()');
+  }
+}
+
+function showDashboardError(message, retryHandler = 'generateDashboard()') {
+  const loadingState = document.getElementById('loadingState');
+  const emptyState = document.getElementById('emptyState');
+  const resultsDiv = document.getElementById('dashboardResults');
+  if (loadingState) loadingState.style.display = 'none';
+  if (emptyState) emptyState.style.display = 'none';
+  if (resultsDiv) {
+    resultsDiv.innerHTML = `
       <div>
         <i class="fas fa-exclamation-triangle"></i>
         <h3>Error Generating Dashboard</h3>
-        <p>Failed to load dashboard data: ${error.message}</p>
-        <button type="button" class="button secondary" onclick="generateDashboard()">
+        <p>Failed to load dashboard data: ${message || 'Unknown error'}</p>
+        <button type="button" class="button secondary" onclick="${retryHandler}">
           <i class="fas fa-redo"></i>
           Try Again
         </button>
       </div>
     `;
-    document.getElementById('dashboardResults').style.display = 'block';
+    resultsDiv.style.display = 'block';
   }
 }
 
@@ -1176,7 +1184,7 @@ function renderCharts(charts) {
 }
 
 // Per-chart casting perspective filter (only affects charts; does not touch tables/metrics)
-function setChartCasting(chartIdx, perspective) {
+async function setChartCasting(chartIdx, perspective) {
   // Preserve current dashboard type and filters
   const filters = getCurrentFilterValues();
   // Add chart-specific casting filter
@@ -1187,19 +1195,24 @@ function setChartCasting(chartIdx, perspective) {
   document.getElementById('dashboardResults').style.display = 'none';
 
   const dashboardType = document.getElementById('dashboardType').value;
-  fetch('/api/dashboard/generate', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Requested-By': 'MTGO-Tracker'
-    },
-    body: JSON.stringify({
-      dashboard_type: dashboardType,
-      filters
-    })
-  })
-  .then(r => r.json())
-  .then(result => {
+  try {
+    const response = await fetch('/api/dashboard/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-By': 'MTGO-Tracker'
+      },
+      body: JSON.stringify({
+        dashboard_type: dashboardType,
+        filters
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result?.error || `Failed to regenerate dashboard: ${response.status}`);
+    }
+
     if (result.success) {
       renderDashboardContent(result.data, dashboardType);
       // Re-activate the selected button visually for this chart index
@@ -1220,11 +1233,10 @@ function setChartCasting(chartIdx, perspective) {
     } else {
       throw new Error(result.error || 'Failed to regenerate dashboard');
     }
-  })
-  .catch(err => {
+  } catch (err) {
     console.error('Failed to set chart casting:', err);
-    hideProcessingModal?.();
-  });
+    showDashboardError(err.message, `setChartCasting(${chartIdx}, '${perspective}')`);
+  }
 }
 </script>
 

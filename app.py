@@ -146,7 +146,7 @@ def create_app():
 
 	@login_manager.user_loader
 	def load_user(uid):
-		return Player.query.get(int(uid))
+		return db.session.get(Player, int(uid))
 
 	return app
 

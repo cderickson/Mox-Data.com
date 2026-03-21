@@ -29,6 +29,7 @@ import os
 import io
 import time
 import tempfile
+import html
 from modules import modo
 import pickle
 import math 
@@ -99,6 +100,15 @@ EXPORT_DOWNLOAD_SALT = os.environ.get("EXPORT_DOWNLOAD_SALT", "export-download-s
 def _utc_now():
 	"""Return current UTC time using non-deprecated API (naive UTC for existing DB DateTime usage)."""
 	return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+def sanitize_dashboard_text(value, default='NA'):
+	"""Escape DB/user-provided values before embedding into dashboard HTML."""
+	if value is None:
+		return default
+	text = str(value).strip()
+	if text == '' or text.lower() == 'nan':
+		return default
+	return html.escape(text, quote=True)
 
 def unresolved_game_winner_filter():
 	"""Games whose winner is unresolved (null/blank/not P1,P2)."""
@@ -857,6 +867,7 @@ def process_logs(self, data):
 							counts['new_games'] += 1
 					for play in parsed_data_inverted[2]:
 						if Play.query.filter_by(uid=uid, match_id=play[0], game_num=play[1], play_num=play[2]).first():
+							counts['plays_replaced'] += 1
 							continue
 						new_play = Play(uid=uid,
 										match_id=play[0],
@@ -944,6 +955,7 @@ def process_logs(self, data):
 					debug_log(f"🔍 DRAFTLOG DB: Number of picks to process: {len(parsed_data[1])}")
 					for pick in parsed_data[1]:
 						if Pick.query.filter_by(uid=uid, draft_id=pick[0], pick_ovr=pick[4]).first():
+							counts['picks_replaced'] += 1
 							continue
 						p = pick
 						for index,i in enumerate(p):
@@ -1012,7 +1024,7 @@ def process_logs(self, data):
 			
 			msg.html = f'''
 		<h2 style="text-align: center">Load Report, Import GameLogs - #{new_task_history.task_id}<br></h2>
-		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}<h3><br><br>
+		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}</h3><br><br>
 
 		<div style="display: flex; justify-content: center;">
 			<table>
@@ -1027,6 +1039,14 @@ def process_logs(self, data):
 					</tr>
 				</thead>
 				<tbody>
+					<tr>
+						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Processed</th>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['total_gamelogs']}</td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['total_draftlogs']}</td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
+					</tr>
 					<tr>
 						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">New Records Loaded</th>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_matches']}</td>
@@ -1044,27 +1064,27 @@ def process_logs(self, data):
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['picks_replaced']}</td>
 					</tr>
 					<tr>
-						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Records Skipped (Already Loaded)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Gamelogs Skipped (Removed)</th>
+						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Removed)</th>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['gamelogs_skipped_removed']}</td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['draftlogs_skipped_removed']}</td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
 					</tr>
 					<tr>
-						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Gamelogs Skipped (Empty)</th>
+						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Empty)</th>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['gamelogs_skipped_empty']}</td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['draftlogs_skipped_empty']}</td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
+					</tr>
+					<tr>
+						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Errors)</th>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['gamelogs_skipped_error']}</td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['draftlogs_skipped_error']}</td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
 					</tr>
 				</tbody>
@@ -1105,7 +1125,7 @@ def process_revisions_from_app(self, data):
 		'updated_drafts':0
 	}
 	uid = data['user_id']
-	drafts_to_update = []
+	drafts_to_update = set()
 	submit_date = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
 	error_code = None
 
@@ -1125,7 +1145,7 @@ def process_revisions_from_app(self, data):
 					existing_match = Match.query.filter_by(uid=uid, match_id=match[0], p1=match[2]).first()
 					if Draft.query.filter_by(uid=uid, draft_id=match[1]).first():
 						existing_match.draft_id = match[1]
-						drafts_to_update.append(match[1])
+						drafts_to_update.add(match[1])
 					existing_match.p1_arch = match[3]
 					existing_match.p1_subarch = match[4]
 					existing_match.p2_arch = match[6]
@@ -1149,16 +1169,17 @@ def process_revisions_from_app(self, data):
 					merged_game = db.session.merge(existing_game)
 					db.session.add(merged_game)
 					counts['updated_games'] += 1
-			for draft_id in drafts_to_update:
+			for draft_id in sorted(drafts_to_update):
 				update_draft_wins(uid, data['username'], draft_id)
 				counts['updated_drafts'] += 1
 
 			try:
 				debug_log(f'Committing to DB')
 				db.session.commit()
-			except:
-				debug_log(f'DBError: {e}')
+			except Exception as commit_error:
+				debug_log(f'DBError: {commit_error}')
 				db.session.rollback()
+				raise
 			debug_log(f'counts: {counts}')
 			build_cards_played_db(uid)
 		except Exception as e:
@@ -1188,8 +1209,8 @@ def process_revisions_from_app(self, data):
 		mail = app.extensions['mail']
 		msg = Message(f'MTGO-DB Load Report #{new_task_history.task_id}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
 		msg.html = f'''
-		<h2 style="text-align: center">Load Report, Import from MTGO-Tracker - #{new_task_history.task_id}<br></h2>
-		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}<h3><br><br>
+		<h2 style="text-align: center">Load Report, Load Revisions from MTGO-Tracker - #{new_task_history.task_id}<br></h2>
+		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}</h3><br><br>
 
 		<div style="display: flex; justify-content: center;">
 			<table>
@@ -1204,14 +1225,6 @@ def process_revisions_from_app(self, data):
 					</tr>
 				</thead>
 				<tbody>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">New Records Loaded</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
 					<tr>
 						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Records Updated</th>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['updated_matches']}</td>
@@ -1220,391 +1233,19 @@ def process_revisions_from_app(self, data):
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['updated_drafts']}</td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
 					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Outdated*)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Ignored)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Duplicate)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
 				</tbody>
 			</table>
 		</div>
 		<div style="display: flex; justify-content: center;">
 			<p style="text-align: center; font-style: italic;">Note: Two records are loaded and stored for each Match and Game.<br>
-			*Outdated records were parsed using an outdated version of MTGO-Tracker.</p>
+			This flow applies revisions to existing records only.</p>
 		</div>
 		'''
-		mail.send(msg)
-		debug_log("📧 DEBUG: Email sent here")
-
-	return 'DONE'
-
-@shared_task(bind=True, base=AbortableTask)
-def process_from_app(self, data):
-	counts = {
-		'new_matches':0,
-		'new_games':0,
-		'new_plays':0,
-		'new_drafts':0,
-		'new_picks':0,
-		'updated_matches':0,
-		'updated_games':0,
-		'updated_plays':0,
-		'updated_drafts':0,
-		'updated_picks':0,
-		'skipped_plays':0,
-		'skipped_drafts':0,
-		'skipped_picks':0,
-		'gamelogs_skipped_digit':0,
-		'gamelogs_skipped_error':0,
-		'gamelogs_skipped_removed':0,
-		'gamelogs_skipped_empty':0,
-		'draftlogs_skipped_error':0,
-		'draftlogs_skipped_removed':0,
-		'draftlogs_skipped_empty':0,
-		'total_gamelogs':0,
-		'total_draftlogs':0
-	}
-	uid = data['user_id']
-	new_match_dict = {}
-	submit_date = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
-	error_code = None
-
-	# Get Flask app from Celery BEFORE processing files
-	from app import create_app
-	app = create_app()
-	debug_log(f'App Created')
-	with app.app_context():
-		debug_log(f'App Context')
 		try:
-			debug_log(f'Starting Match Loop')
-			debug_log(f'Match Loop Length: {len(data["all_data"][0])}')
-			proc_dt = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
-			for match in data['all_data'][0]:
-				new_match_dict[match[0]] = False
-				if match[0][0:12].isdigit():
-					debug_log(f'Skipping Match: {match[0]} is digit')
-					counts['gamelogs_skipped_digit'] += 1
-					continue
-				if Removed.query.filter_by(uid=uid, match_id=match[0]).first():
-					debug_log(f'Skipping Match: {match[0]} is in removed table')
-					counts['gamelogs_skipped_removed'] += 1
-					continue
-				if Match.query.filter_by(uid=uid, match_id=match[0], p1=match[2]).first():
-					debug_log(f'Updating Match: {match[0]} is in match table')
-					existing_match = Match.query.filter_by(uid=uid, match_id=match[0], p1=match[2]).first()
-					existing_match.p1_arch = match[3]
-					existing_match.p1_subarch = match[4]
-					existing_match.p2_arch = match[6]
-					existing_match.p2_subarch = match[7]
-					existing_match.p1_wins = match[11]
-					existing_match.p2_wins = match[12]
-					existing_match.match_winner = match[13]
-					existing_match.format = match[14]
-					existing_match.limited_format = match[15]
-					existing_match.match_type = match[16]
-					existing_match.proc_dt = proc_dt
-					merged_match = db.session.merge(existing_match)
-					db.session.add(merged_match)
-					counts['updated_matches'] += 1
-				else:
-					debug_log(f'Adding Match: {match[0]} is not in match table')
-					new_match = Match(uid=uid,
-									match_id=match[0],
-									draft_id=match[1],
-									p1=match[2],
-									p1_arch=match[3],
-									p1_subarch=match[4],
-									p2=match[5],
-									p2_arch=match[6],
-									p2_subarch=match[7],
-									p1_roll=match[8],
-									p2_roll=match[9],
-									roll_winner=match[10],
-									p1_wins=match[11],
-									p2_wins=match[12],
-									match_winner=match[13],
-									format=match[14],
-									limited_format=match[15],
-									match_type=match[16],
-									date=match[17],
-									proc_dt=proc_dt)
-					db.session.add(new_match)
-					new_match_dict[match[0]] = True
-					counts['new_matches'] += 1
-			debug_log(f'Starting Game Loop')
-			for game in data['all_data'][1]:
-				if game[0][0:12].isdigit():
-					continue
-				if Removed.query.filter_by(uid=uid, match_id=game[0]).first():
-					continue
-				if Game.query.filter_by(uid=uid, match_id=game[0], game_num=game[3], p1=game[1]).first():
-					existing_game = Game.query.filter_by(uid=uid, match_id=game[0], game_num=game[3], p1=game[1]).first()
-					existing_game.game_winner = game[11]
-					existing_game.proc_dt = proc_dt
-					merged_game = db.session.merge(existing_game)
-					db.session.add(merged_game)
-					counts['updated_games'] += 1
-				else:
-					new_game = Game(uid=uid,
-									match_id=game[0],
-									p1=game[1],
-									p2=game[2],
-									game_num=game[3],
-									pd_selector=game[4],
-									pd_choice=game[5],
-									on_play=game[6],
-									on_draw=game[7],
-									p1_mulls=game[8],
-									p2_mulls=game[9],
-									turns=game[10],
-									game_winner=game[11],
-									proc_dt=proc_dt)
-					db.session.add(new_game)
-					counts['new_games'] += 1
-			debug_log(f'Starting Play Loop')
-			for play in data['all_data'][2]:
-				if play[0][0:12].isdigit():
-					continue
-				if new_match_dict[play[0]] == False:
-					continue
-				if Removed.query.filter_by(uid=uid, match_id=play[0]).first():
-					continue
-				if Play.query.filter_by(uid=uid, match_id=play[0], game_num=play[1], play_num=play[2]).first():
-					counts['skipped_plays'] += 1
-					continue
-				else:
-					new_play = Play(uid=uid,
-										match_id=play[0],
-										game_num=play[1],
-										play_num=play[2],
-										turn_num=play[3],
-										casting_player=play[4],
-										action=play[5],
-										primary_card=play[6],
-										target_list=play[7],
-										opp_target=play[8],
-										self_target=play[9],
-										cards_drawn=play[10],
-										attacker_list=play[11],
-										attackers=play[12],
-										active_player=play[13],
-										non_active_player=play[14],
-										proc_dt=proc_dt)
-					db.session.add(new_play)
-					counts['new_plays'] += 1
-			debug_log(f'Starting Game Action Loop')
-			for action in data['all_data'][3]:
-				debug_log(f"🔍 DRAFTLOG DB: Processing action: {action[:-2]}")
-				if action[0][0:12].isdigit():
-					continue
-				if new_match_dict[action[:-2]] == False:
-					continue
-				if Removed.query.filter_by(uid=uid, match_id=action[:-2]).first():
-					continue
-				if GameActions.query.filter_by(uid=uid, match_id=action[:-2], game_num=action[-1]).first():
-					continue
-				else:
-					new_action = GameActions(uid=uid,
-											match_id=action[:-2],
-											game_num=action[-1],
-											game_actions='\n'.join(data['all_data'][3][action][-15:]),
-											proc_dt=proc_dt)
-					db.session.add(new_action)
-			debug_log(f'Starting Draft Loop')
-			if len(data['drafts_table']) > 0:
-				for draft in data['drafts_table']:
-					if Removed.query.filter_by(uid=uid, match_id=draft[0]).first():
-						continue
-					if Draft.query.filter_by(uid=uid, draft_id=draft[0]).first():
-						existing_draft = Draft.query.filter_by(uid=uid, draft_id=draft[0]).first()
-						existing_draft.hero = draft[1]
-						existing_draft.player2 = draft[2]
-						existing_draft.player3 = draft[3]
-						existing_draft.player4 = draft[4]
-						existing_draft.player5 = draft[5]
-						existing_draft.player6 = draft[6]
-						existing_draft.player7 = draft[7]
-						existing_draft.player8 = draft[8]
-						existing_draft.match_wins = draft[9]
-						existing_draft.match_losses = draft[10]
-						existing_draft.draft_format = draft[11]
-						existing_draft.date = draft[12]
-						existing_draft.proc_dt = proc_dt
-						merged_draft = db.session.merge(existing_draft)
-						db.session.add(merged_draft)
-						counts['updated_drafts'] += 1
-					else:
-						debug_log(f"🔍 DRAFTLOG DB: Creating new draft {draft[0]}")
-						new_draft = Draft(uid=uid,
-										draft_id=draft[0],
-										hero=draft[1],
-										player2=draft[2],
-										player3=draft[3],
-										player4=draft[4],
-										player5=draft[5],
-										player6=draft[6],
-										player7=draft[7],
-										player8=draft[8],
-										match_wins=draft[9],
-										match_losses=draft[10],
-										draft_format=draft[11],
-										date=draft[12],
-										proc_dt=proc_dt)
-						db.session.add(new_draft)
-						counts['new_drafts'] += 1
-			debug_log(f'Starting Pick Loop')
-			for pick in data['picks_table']:
-				if Removed.query.filter_by(uid=uid, match_id=pick[0]).first():
-					continue
-				p = pick
-				for index,i in enumerate(p):
-					if i == 'NA':
-						p[index] = ''
-				if Pick.query.filter_by(uid=uid, draft_id=pick[0], pick_ovr=pick[4]).first():
-					counts['skipped_picks'] += 1
-					continue
-				else:
-					new_pick = Pick(uid=uid,
-									draft_id=pick[0],
-									card=pick[1],
-									pack_num=pick[2],
-									pick_num=pick[3],
-									pick_ovr=pick[4],
-									avail1=p[5],
-									avail2=p[6],
-									avail3=p[7],
-									avail4=p[8],
-									avail5=p[9],
-									avail6=p[10],
-									avail7=p[11],
-									avail8=p[12],
-									avail9=p[13],
-									avail10=p[14],
-									avail11=p[15],
-									avail12=p[16],
-									avail13=p[17],
-									avail14=p[18],
-									proc_dt=proc_dt)
-					db.session.add(new_pick)
-					counts['new_picks'] += 1
-			try:
-				debug_log(f'Committing to DB')
-				db.session.commit()
-			except:
-				debug_log(f'DBError: {e}')
-				db.session.rollback()
-			debug_log(f'counts: {counts}')
-			build_cards_played_db(uid)
-		except Exception as e:
-			debug_log(f'Error: {e}')
-			error_code = e
-
-		complete_date = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
-		curr_date = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific')).strftime('%Y-%m-%d')
-		curr_time = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific')).time().strftime('%H:%M')
-
-		new_task_history = TaskHistory(
-			uid=data['user_id'],
-			curr_username=data['username'],
-			submit_date=submit_date,
-			complete_date=complete_date,
-			task_type='Import From MTGO-Tracker',
-			error_code=error_code
-		)
-		db.session.add(new_task_history)
-		try:
-			db.session.commit()
-		except:
-			db.session.rollback()
-
-		mail = app.extensions['mail']
-		msg = Message(f'MTGO-DB Load Report #{new_task_history.task_id}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
-		msg.html = f'''
-		<h2 style="text-align: center">Load Report, Import from MTGO-Tracker - #{new_task_history.task_id}<br></h2>
-		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}<h3><br><br>
-
-		<div style="display: flex; justify-content: center;">
-			<table>
-				<thead>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Load Result</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Matches</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Games</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Plays</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Drafts</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Draft Picks</th>
-					</tr>
-				</thead>
-				<tbody>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">New Records Loaded</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_matches']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_games']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_plays']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_drafts']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_picks']}</td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Records Updated</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['updated_matches']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['updated_games']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Outdated*)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['gamelogs_skipped_digit']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Ignored)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['gamelogs_skipped_removed']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['draftlogs_skipped_removed']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Duplicate)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['skipped_plays']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['skipped_drafts']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['skipped_picks']}</td>
-					</tr>
-				</tbody>
-			</table>
-		</div>
-		<div style="display: flex; justify-content: center;">
-			<p style="text-align: center; font-style: italic;">Note: Two records are loaded and stored for each Match and Game.<br>
-			*Outdated records were parsed using an outdated version of MTGO-Tracker.</p>
-		</div>
-		'''
-		mail.send(msg)
-		debug_log("📧 DEBUG: Email sent here")
+			mail.send(msg)
+			debug_log("📧 DEBUG: Email sent here")
+		except Exception as email_error:
+			debug_log(f"📧 DEBUG: Failed to send load report email: {email_error}")
 
 	return 'DONE'
 
@@ -1618,11 +1259,6 @@ def reprocess_logs(self, data):
 		'new_picks':0,
 		'matches_updated':0,
 		'drafts_updated':0,
-		'matches_skipped_dupe':0,
-		'games_skipped_dupe':0,
-		'plays_skipped_dupe':0,
-		'drafts_skipped_dupe':0,
-		'picks_skipped_dupe':0,
 		'gamelogs_skipped_error':0,
 		'gamelogs_skipped_removed':0,
 		'gamelogs_skipped_empty':0,
@@ -1637,6 +1273,7 @@ def reprocess_logs(self, data):
 	uid = data['user_id']
 	submit_date = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
 	error_code = None
+	task_failed = False
 
 	# Get Flask app from Celery BEFORE processing files
 	from app import create_app
@@ -1973,7 +1610,9 @@ def reprocess_logs(self, data):
 			build_cards_played_db(uid)
 		except Exception as e:
 			debug_log(f'Error: {e}')
-			error_code = e
+			db.session.rollback()
+			error_code = str(e)[:50]
+			task_failed = True
 
 		complete_date = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
 		curr_date = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific')).strftime('%Y-%m-%d')
@@ -1993,11 +1632,14 @@ def reprocess_logs(self, data):
 		except:
 			db.session.rollback()
 
+		if task_failed:
+			raise RuntimeError(f"reprocess_logs failed: {error_code or 'unknown error'}")
+
 		mail = app.extensions['mail']
 		msg = Message(f'MTGO-DB Load Report #{new_task_history.task_id}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
 		msg.html = f'''
 		<h2 style="text-align: center">Load Report, Re-Processing Data - #{new_task_history.task_id}<br></h2>
-		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}<h3><br><br>
+		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}</h3><br><br>
 
 		<div style="display: flex; justify-content: center;">
 			<table style="text-align: center">
@@ -2013,7 +1655,7 @@ def reprocess_logs(self, data):
 				</thead>
 				<tbody>
 					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Reprocessed</th>
+						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Processed</th>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['total_gamelogs']}</td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
@@ -2021,35 +1663,11 @@ def reprocess_logs(self, data):
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
 					</tr>
 					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">New Matches Processed</th>
+						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">New Records Loaded</th>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_matches']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_drafts']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">New Games Processed</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_games']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">New Plays Processed</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_plays']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">New Draft Picks Processed</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_drafts']}</td>
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_picks']}</td>
 					</tr>
 					<tr>
@@ -2077,22 +1695,25 @@ def reprocess_logs(self, data):
 						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
 					</tr>
 					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Records Skipped (Duplicates)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['matches_skipped_dupe']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['games_skipped_dupe']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['plays_skipped_dupe']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['drafts_skipped_dupe']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['picks_skipped_dupe']}</td>
+						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Records Updated</th>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['matches_updated']}</td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['drafts_updated']}</td>
+						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
 					</tr>
 				</tbody>
 			</table>
 		</div>
 		<div style="display: flex; justify-content: center;">
-			<p style="text-align: center; font-style: italic;">Note: Two records are loaded and stored for each Match and Game.
+			<p style="text-align: center; font-style: italic;">Note: Two records are loaded and stored for each Match and Game.</p>
 		</div>
 		'''
-		mail.send(msg)
-		debug_log("📧 DEBUG: Email sent here")
+		try:
+			mail.send(msg)
+			debug_log("📧 DEBUG: Email sent here")
+		except Exception as email_error:
+			debug_log(f"📧 DEBUG: Failed to send load report email: {email_error}")
 
 	return 'DONE'
 
@@ -2358,27 +1979,28 @@ def login():
 	if request.method == 'POST':
 		login_email = request.form.get('login_email')
 		login_pwd = request.form.get('login_pwd')
+		remember_me = request.form.get('remember_me') == 'on'
 		user = Player.query.filter_by(email=login_email).first()
 		if (not login_email) or (not login_pwd):
 			flash(f'Please fill in all fields.', category='error')
-			return render_template('login.html', user=current_user, inputs=[login_email, login_pwd])
+			return render_template('login.html', user=current_user, inputs=[login_email, ''], remember_checked=remember_me)
 
 		if not user:
-			flash('Email not found.', category='error')
-			return render_template('login.html', user=current_user, inputs=[login_email, login_pwd])
+			flash('Email/Password combination not found.', category='error')
+			return render_template('login.html', user=current_user, inputs=[login_email, ''], remember_checked=remember_me)
 
 		if check_password_hash(user.pwd, login_pwd):
 			if user.is_confirmed == False:
 				flash('Email has not been confirmed.', category='error')
-				return render_template('login.html', user=current_user, inputs=[login_email, login_pwd], not_confirmed=True)
-			login_user(user, remember=True)
+				return render_template('login.html', user=current_user, inputs=[login_email, ''], not_confirmed=True, remember_checked=remember_me)
+			login_user(user, remember=remember_me)
 			flash('Logged in.', category='success')
 			return redirect(url_for('views.profile'))
 		else:
 			flash('Email/Password combination not found.', category='error')
-			return render_template('login.html', user=current_user, inputs=[login_email, login_pwd])
+			return render_template('login.html', user=current_user, inputs=[login_email, ''], remember_checked=remember_me)
 
-	return render_template('login.html', user=current_user, inputs=['',''])
+	return render_template('login.html', user=current_user, inputs=['',''], remember_checked=False)
 
 @views.route('/logout')
 @login_required
@@ -2412,61 +2034,6 @@ def load():
 	task = process_logs.delay({'email':current_user.email, 'file_stream':file_stream.getvalue(), 'user_id':current_user.uid, 'username':current_user.username})
 
 	flash(f'Your data is now being processed. This may take several minutes depending on the number of files. A Load Report will be emailed upon completion.', category='success')
-	return redirect(url_for('views.index'))
-
-@views.route('/load_from_app', methods=['POST'])
-@login_required
-def load_from_app():
-	files = request.files.getlist('folder')
-	process_total = 0
-
-	all_data = []
-	drafts_table = []
-	picks_table = []
-
-	for i in files:
-		if not i:
-			continue
-		filename = i.filename.split('/')[-1]
-		debug_log(f'Filename: {filename}')
-		if (filename not in ['ALL_DATA', 'DRAFTS_TABLE', 'PICKS_TABLE']):
-			continue
-		if filename == 'ALL_DATA':
-			try:
-				all_data = pickle.loads(i.read())
-				all_data = modo.invert_join(all_data)
-			except pickle.UnpicklingError:
-				flash(f'Unable to read file: {i.filename}.', category='error')
-				return redirect(url_for('views.index'))
-			process_total += len(all_data[0])
-			process_total += len(all_data[1])
-			process_total += len(all_data[2])
-			process_total += len(all_data[3])
-			debug_log(f'All Data: {len(all_data[0])} matches, {len(all_data[1])} games, {len(all_data[2])} plays, {len(all_data[3])} gameactions?')
-		elif filename == 'DRAFTS_TABLE':
-			try:
-				drafts_table = pickle.loads(i.read())
-			except pickle.UnpicklingError:
-				flash(f'Unable to read file: {i.filename}.', category='error')
-				return redirect(url_for('views.index'))
-			process_total += len(drafts_table)
-			debug_log(f'Drafts Table: {len(drafts_table)} drafts')
-		elif filename == 'PICKS_TABLE':
-			try:
-				picks_table = pickle.loads(i.read())
-			except pickle.UnpicklingError:
-				flash(f'Unable to read file: {i.filename}.', category='error')
-				return redirect(url_for('views.index'))
-			process_total += len(picks_table)
-			debug_log(f'Picks Table: {len(picks_table)} picks')
-
-	if (len(all_data) == 0) and (len(drafts_table) == 0) and (len(picks_table) == 0):
-		flash('No MTGO-Tracker save data was found.', 'error')
-		return redirect(url_for('views.index'))
-
-	task = process_from_app.delay({'all_data':all_data, 'drafts_table':drafts_table, 'picks_table':picks_table, 'user_id':current_user.uid, 'username':current_user.username, 'email':current_user.email})
-
-	flash(f'MTGO-Tracker save data is being processed. A Load Report will be emailed upon completion.', category='success')
 	return redirect(url_for('views.index'))
 
 @views.route('/load_revisions_from_app', methods=['POST'])
@@ -3848,15 +3415,13 @@ def edit_profile():
 @views.route('/filter_options', methods=['GET'])
 @login_required
 def filter_options():
-	if request.headers.get('X-Requested-By') != 'MTGO-Tracker':
-		return 'Forbidden', 403
 	filter_options_dict = {'Date1':'2000-01-01','Date2':'2999-12-31'}
 
 	table = Match.query.filter_by(uid=current_user.uid, p1=current_user.username)
 	plays_table = Play.query.filter_by(uid=current_user.uid, casting_player=current_user.username)
 
 	if (table.count() == 0) or (plays_table.count() == 0):
-		return filter_options_dict
+		return jsonify(filter_options_dict)
 
 	filter_options_dict['Card'] = [i.primary_card for i in plays_table.with_entities(Play.primary_card).distinct().order_by(Play.primary_card).all()]
 	filter_options_dict['Card'].remove('NA')
@@ -3870,7 +3435,7 @@ def filter_options():
 	filter_options_dict['Date1'] = date1[0:4] + '-' + date1[4:6] + '-' + date1[6:]
 	date2 = Match.query.filter(Match.uid == current_user.uid, Match.p1 == current_user.username).order_by(desc(Match.date)).first().date[0:10].replace('-','')
 	filter_options_dict['Date2'] = date2[0:4] + '-' + date2[4:6] + '-' + date2[6:]
-	return filter_options_dict
+	return jsonify(filter_options_dict)
 
 @views.route('/getting_started', methods=['GET'])
 def getting_started():
@@ -3909,9 +3474,6 @@ def dashboards():
 @login_required
 def api_dashboard_filtered_options():
 	"""Get filtered dropdown options based on current filter selections"""
-	if request.headers.get('X-Requested-By') != 'MTGO-Tracker':
-		return jsonify({'error': 'Forbidden'}), 403
-	
 	try:
 		# Get current filter values
 		data = request.get_json()
@@ -4005,17 +3567,62 @@ def api_dashboard_filtered_options():
 @login_required
 def api_dashboard_generate():
 	"""Generate dashboard data based on type and filters"""
-	if request.headers.get('X-Requested-By') != 'MTGO-Tracker':
-		return jsonify({'error': 'Forbidden'}), 403
-	
 	try:
+		def parse_int_filter(raw_value, field_name, default_value, min_value=0):
+			if raw_value is None:
+				return default_value, None
+			raw_text = str(raw_value).strip()
+			if raw_text == '':
+				return default_value, None
+			try:
+				parsed = int(raw_text)
+			except (TypeError, ValueError):
+				return None, f"Invalid {field_name}: must be an integer."
+			if parsed < min_value:
+				return None, f"Invalid {field_name}: must be >= {min_value}."
+			return parsed, None
+
 		# Get request data
-		data = request.get_json()
+		data = request.get_json(silent=True) or {}
+		if not isinstance(data, dict):
+			return jsonify({'error': 'Invalid request payload.'}), 400
+
 		dashboard_type = data.get('dashboard_type')
-		filters = data.get('filters', {})
+		filters = data.get('filters') or {}
+		if not isinstance(filters, dict):
+			return jsonify({'error': 'Invalid filters payload.'}), 400
 		
 		if not dashboard_type:
 			return jsonify({'error': 'Dashboard type is required'}), 400
+
+		opponent_threshold, err = parse_int_filter(
+			filters.get('opponentThreshold'),
+			'opponentThreshold',
+			default_value=1,
+			min_value=1
+		)
+		if err:
+			return jsonify({'error': err}), 400
+		hero_mulls, err = parse_int_filter(
+			filters.get('heroMulls'),
+			'heroMulls',
+			default_value=0,
+			min_value=0
+		)
+		if err:
+			return jsonify({'error': err}), 400
+		opp_mulls, err = parse_int_filter(
+			filters.get('oppMulls'),
+			'oppMulls',
+			default_value=0,
+			min_value=0
+		)
+		if err:
+			return jsonify({'error': err}), 400
+
+		filters['opponentThreshold'] = opponent_threshold
+		filters['heroMulls'] = hero_mulls
+		filters['oppMulls'] = opp_mulls
 		
 		# Apply base filters to get user's matches
 		base_query = Match.query.filter_by(uid=current_user.uid, p1=current_user.username)
@@ -4075,10 +3682,25 @@ def apply_dashboard_filters(query, filters):
 		
 		# Filter by card (requires joining with Play table)
 		if filters.get('card'):
-			query = query.join(Game, (Match.match_id == Game.match_id) & (Match.uid == Game.uid))\
-						 .join(Play, (Game.match_id == Play.match_id) & (Game.game_num == Play.game_num) & (Game.uid == Play.uid))\
-						 .filter(Play.primary_card == filters['card'])\
-						 .filter(Play.casting_player == current_user.username)
+			card_play_exists = (
+				select(1)
+				.select_from(Game)
+				.join(
+					Play,
+					(Game.match_id == Play.match_id) &
+					(Game.game_num == Play.game_num) &
+					(Game.uid == Play.uid)
+				)
+				.where(
+					Game.uid == Match.uid,
+					Game.match_id == Match.match_id,
+					Game.p1 == Match.p1,
+					Play.primary_card == filters['card'],
+					Play.casting_player == Match.p1
+				)
+				.exists()
+			)
+			query = query.filter(card_play_exists)
 		
 		return query
 		
@@ -4259,7 +3881,7 @@ def generate_match_performance_dashboard(filtered_query, filters):
 				'headers': ['<center>Format</center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Match Win%</center>'],
 				'height': '214px',
 				'rows': [[
-					row['format'],
+					sanitize_dashboard_text(row['format']),
 					f"<center>{int(row['wins'])}</center>",
 					f"<center>{int(row['losses'])}</center>",
 					f"<center>{row['win_pct']:.1f}%</center>"
@@ -4302,7 +3924,7 @@ def generate_match_performance_dashboard(filtered_query, filters):
 				'headers': ['<center>Match Type</center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Match Win%</center>'],
 				'height': '214px',
 				'rows': [[
-					row['match_type'],
+					sanitize_dashboard_text(row['match_type']),
 					f"<center>{int(row['wins'])}</center>",
 					f"<center>{int(row['losses'])}</center>",
 					f"<center>{row['win_pct']:.1f}%</center>"
@@ -4346,7 +3968,7 @@ def generate_match_performance_dashboard(filtered_query, filters):
 				'headers': ['<center>Deck</center>', '<center>Share</center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Match Win%</center>'],
 				'height': '214px',
 				'rows': [[
-					row['p1_subarch'],
+					sanitize_dashboard_text(row['p1_subarch']),
 					f"<center>{row['wins'] + row['losses']} - ({row['share_pct']:.1f}%)</center>",
 					f"<center>{int(row['wins'])}</center>",
 					f"<center>{int(row['losses'])}</center>",
@@ -4391,7 +4013,7 @@ def generate_match_performance_dashboard(filtered_query, filters):
 				'headers': ['<center>Deck</center>', '<center>Share</center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Match Win%</center>'],
 				'height': '214px',
 				'rows': [[
-					row['p2_subarch'],
+					sanitize_dashboard_text(row['p2_subarch']),
 					f"<center>{row['wins'] + row['losses']} - ({row['share_pct']:.1f}%)</center>",
 					f"<center>{int(row['wins'])}</center>",
 					f"<center>{int(row['losses'])}</center>",
@@ -4595,7 +4217,7 @@ def generate_card_analysis_dashboard(filtered_query, filters):
 				'headers': ['<center>Card</center>', '<center>Games Cast</center>', '<center>Hero Game Win%</center>'],
 				'height': '400px',
         'rows': [[
-          f"<a href=\"#\" onclick=\"filterByCard('{escape_for_js(row['card'])}'); return false;\" style=\"color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;\" onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\">{row['card']}</a>",
+          f"<a href=\"#\" onclick=\"filterByCard('{escape_for_js(row['card'])}'); return false;\" style=\"color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;\" onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\">{sanitize_dashboard_text(row['card'])}</a>",
 					f"<center>{int(row['games_cast'])} - ({row['games_cast_pct']:.1f}%)</center>",
 					f"<center>{row['game_win_pct']:.1f}%</center>"
 				] for _, row in card_games_g1.iterrows()],
@@ -4686,7 +4308,7 @@ def generate_card_analysis_dashboard(filtered_query, filters):
 				'headers': ['<center>Card</center>', '<center>Games Cast</center>', '<center>Hero Game Win%</center>'],
 				'height': '400px',
         'rows': [[
-          f"<a href=\"#\" onclick=\"filterByCard('{escape_for_js(row['card'])}'); return false;\" style=\"color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;\" onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\">{row['card']}</a>",
+          f"<a href=\"#\" onclick=\"filterByCard('{escape_for_js(row['card'])}'); return false;\" style=\"color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;\" onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\">{sanitize_dashboard_text(row['card'])}</a>",
 					f"<center>{int(row['games_cast'])} - ({row['games_cast_pct']:.1f}%)</center>",
 					f"<center>{row['game_win_pct']:.1f}%</center>"
 				] for _, row in card_games_g23.iterrows()],
@@ -4942,7 +4564,7 @@ def generate_opponent_analysis_dashboard(filtered_query, filters):
 		
 		# Sort by total matches
 		top_opponents = sorted(filtered_opponent_stats.items(), key=lambda x: x[1]['total'], reverse=True)
-		
+
 		# Helper functions for formatting
 		def match_result(p1_wins, p2_wins):
 			if p1_wins == p2_wins:
@@ -4984,7 +4606,7 @@ def generate_opponent_analysis_dashboard(filtered_query, filters):
 			'headers': ['<center>Opponent</center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Win% Against</center>'],
 			'height': '300px',
 			'rows': [[
-				f'<a href="#" onclick="filterByOpponent(\'{escape_for_js(opp[0])}\'); return false;" style="color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">{opp[0]}</a>',
+				f'<a href="#" onclick="filterByOpponent(\'{escape_for_js(opp[0])}\'); return false;" style="color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">{sanitize_dashboard_text(opp[0])}</a>',
 				f"<center>{opp[1]['wins']}</center>",
 				f"<center>{opp[1]['losses']}</center>",
 				f"<center>{opp[1]['win_rate']:.1f}%</center>"
@@ -5025,13 +4647,13 @@ def generate_opponent_analysis_dashboard(filtered_query, filters):
 			result_text = match_result(match.p1_wins, match.p2_wins)
 			row_style = get_row_color(result_text)
 			match_history_table['rows'].append([
-				f"<center>{format_date(match.date)}</center>",
-				f"<center>{match.p2}</center>",
-				f"<center>{match.p1_subarch}</center>",
-				f"<center>{match.p2_subarch}</center>",
-				f"<center>{result_text}</center>",
-				f"<center>{format_match_format(match.format, match.limited_format)}</center>",
-				f"<center>{match.match_type}</center>",
+				f"<center>{sanitize_dashboard_text(format_date(match.date))}</center>",
+				f"<center>{sanitize_dashboard_text(match.p2)}</center>",
+				f"<center>{sanitize_dashboard_text(match.p1_subarch)}</center>",
+				f"<center>{sanitize_dashboard_text(match.p2_subarch)}</center>",
+				f"<center>{sanitize_dashboard_text(result_text)}</center>",
+				f"<center>{sanitize_dashboard_text(format_match_format(match.format, match.limited_format))}</center>",
+				f"<center>{sanitize_dashboard_text(match.match_type)}</center>",
 				row_style  # Add row styling as the 7th element
 			])
 		
@@ -5065,7 +4687,7 @@ def generate_opponent_analysis_dashboard(filtered_query, filters):
 				'headers': ['<center>Deck</center>', '<center>Share</center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Win% Against</center>'],
 				'height': '300px',
 				'rows': [[
-					row['p2_subarch'],
+					sanitize_dashboard_text(row['p2_subarch']),
 					f"<center>{row['wins'] + row['losses']} - ({row['share_pct']:.1f}%)</center>",
 					f"<center>{int(row['wins'])}</center>",
 					f"<center>{int(row['losses'])}</center>",
@@ -5588,7 +5210,7 @@ def api_table_data(table_name, page_num):
 			return jsonify({'error': 'Invalid table name'}), 400
 		
 		# Calculate pagination
-		total_pages = math.ceil(total_count / page_size)
+		total_pages = max(1, math.ceil(total_count / page_size))
 		if page_num < 1 or page_num > total_pages:
 			return jsonify({'error': 'Invalid page number'}), 400
 		

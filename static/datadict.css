@@ -82,8 +82,26 @@
 .data-dict-container .section-card-title {
     border-bottom: none !important;
     padding-bottom: 8px !important;
+    padding-right: 28px !important;
     width: 100% !important;
     position: relative !important;
+    display: flex;
+    align-items: center;
+}
+
+.data-dict-container .section-card-title .table-badge {
+    margin-left: auto;
+    display: inline-flex !important;
+    align-items: center;
+    align-self: center;
+    line-height: 1;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/* Primary badge styling - keep green fill, add dark green border */
+.data-dict-container .section-card-title .table-badge:not(.secondary) {
+    border: 1px solid #166534 !important;
 }
 
 .data-dict-container .section-card-title::after {

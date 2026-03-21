@@ -1148,6 +1148,15 @@ table tbody tr:last-child td {
     min-width: 220px;
     text-align: center;
     justify-content: center;
+    background-color: #000000 !important;
+    border-color: #000000 !important;
+    color: #ffffff !important;
+}
+
+.home-banner-cta:hover {
+    background-color: #222222 !important;
+    border-color: #222222 !important;
+    color: #ffffff !important;
 }
 
 /* Masonry-like responsive rows with fixed card width */
