@@ -923,6 +923,7 @@ def play_data(ga,fname):
         action_keywords = ["plays","casts","draws","chooses","discards"]
         action_keyphrases = ["is being attacked by",
                              "puts triggered ability from",
+                             "puts a triggered ability from",
                              "activates an ability of",]
         curr_list = play.split()
         if len(curr_list) > 1:
@@ -1009,6 +1010,8 @@ def play_data(ga,fname):
             else:
                 NON_ACTIVE_PLAYER = P1
         elif is_play(i):
+            # if MATCH_ID == "f32d6429-b478-4121-b4d9-3b806570e096":
+            #     print(i)
             if curr_list[1] == "plays":
                 CASTING_PLAYER = curr_list[0]
                 if curr_list[2] in [P1, P2]:
@@ -1055,6 +1058,12 @@ def play_data(ga,fname):
                 CASTING_PLAYER = curr_list[0]
                 ACTION = curr_list[1].capitalize()
                 CARDS_DRAWN = cards_drawn(curr_list[2])
+                try:
+                    PRIMARY_CARD = get_cards(i)[0]
+                    if (PRIMARY_CARD == P1) or (PRIMARY_CARD == P2):
+                        PRIMARY_CARD = "NA"
+                except IndexError:
+                    pass
             elif curr_list[1] == "chooses":
                 continue
             elif curr_list[1] == "discards":
@@ -1064,7 +1073,7 @@ def play_data(ga,fname):
                 ACTION = "Attacks"
                 ATTACKERS = len(get_cards(i.split("is being attacked by")[1]))
                 ATTACKER_LIST = get_cards(i.split("is being attacked by")[1])
-            elif i.find("puts triggered ability from") != -1:
+            elif (i.find("puts triggered ability from") != -1) or (i.find("puts a triggered ability from") != -1):
                 CASTING_PLAYER = curr_list[0]
                 try:
                     PRIMARY_CARD = get_cards(i)[0]
@@ -1140,6 +1149,8 @@ def play_data(ga,fname):
                               ATTACKERS,
                               alter(ACTIVE_PLAYER,original=True),
                               alter(NON_ACTIVE_PLAYER,original=True)))
+            # if MATCH_ID == "f32d6429-b478-4121-b4d9-3b806570e096":
+            #     print(PLAY_DATA[-1])
             if len(PLAY_DATA) != len(header("Plays")):
                 return "Play Header is Wrong Size."
             ALL_PLAYS.append(PLAY_DATA)

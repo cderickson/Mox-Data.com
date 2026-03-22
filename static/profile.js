@@ -97,7 +97,13 @@ function editUserDB() {
     },
     body: JSON.stringify(data)
   })
-    .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to save profile')))
+    .then(async (response) => {
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to save profile');
+      }
+      return result;
+    })
     .then(result => {
       if (!result || result.success !== true) {
         throw new Error(result?.error || 'Failed to save profile');
@@ -112,7 +118,7 @@ function editUserDB() {
     })
     .catch(error => {
       console.error('Error saving profile:', error);
-      alert('Failed to save profile changes. Please try again.');
+      alert(error?.message || 'Failed to save profile changes. Please try again.');
     });
 }
 

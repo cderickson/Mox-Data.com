@@ -3,7 +3,10 @@ Debug Routes for Database Inspection
 Add these routes to your Flask app for easy database inspection during testing.
 """
 
-from flask import Blueprint, jsonify, render_template_string
+import os
+
+from flask import Blueprint, jsonify, render_template_string, flash, redirect, url_for
+from flask_login import current_user
 from modules.extensions import db
 from modules.models import (
     Player,
@@ -22,6 +25,33 @@ from modules.models import (
 )
 
 debug_bp = Blueprint('debug', __name__, url_prefix='')
+
+
+def _is_debug_admin_authorized():
+    """Allow debug routes for admin users, uid=1, or ADMIN_EMAILS."""
+    try:
+        if not getattr(current_user, "is_authenticated", False):
+            return False
+        admin_emails = {
+            email.strip().lower()
+            for email in os.environ.get("ADMIN_EMAILS", "").split(",")
+            if email.strip()
+        }
+        current_email = (getattr(current_user, "email", "") or "").strip().lower()
+        return (
+            bool(getattr(current_user, "is_admin", False))
+            or (getattr(current_user, "uid", None) == 1)
+            or (current_email in admin_emails)
+        )
+    except Exception:
+        return False
+
+
+@debug_bp.before_request
+def _require_debug_admin():
+    """Protect all debug routes."""
+    if not _is_debug_admin_authorized():
+        return jsonify({"error": "Forbidden"}), 403
 
 
 def _summarize_runtime_loaded_data():
@@ -410,6 +440,60 @@ def show_recent_activity():
                                     recent_tasks=formatted_tasks)
     except Exception as e:
         return f"Error: {str(e)}", 500
+
+@debug_bp.route('/update_vars', methods=['GET'])
+def update_vars():
+    """Legacy manual refresh route for reference datasets."""
+    try:
+        from modules import views as views_module
+        stats = views_module.refresh_reference_data_cache()
+    except Exception as e:
+        flash(f'Error loading auxiliary files: {e}', category='error')
+    else:
+        flash(
+            f"Loaded all auxiliary files successfully "
+            f"(input_options={stats.get('input_options_categories', 0)}, "
+            f"multifaced={stats.get('multifaced_groups', 0)}, "
+            f"all_decks={stats.get('all_decks_months', 0)}).",
+            category='success'
+        )
+    return redirect(url_for('views.index'))
+
+@debug_bp.route('/admin/refresh-reference-cache', methods=['POST'])
+def manual_refresh_reference_cache():
+    """Manually refresh reference caches (admin-only)."""
+    try:
+        from modules import views as views_module
+        stats = views_module.refresh_reference_data_cache()
+        return jsonify({
+            'success': True,
+            'message': 'Reference caches refreshed.',
+            'refreshed_at_utc': views_module.datetime.datetime.now(
+                views_module.datetime.timezone.utc
+            ).isoformat().replace('+00:00', 'Z'),
+            'stats': stats,
+        }), 200
+    except Exception as e:
+        try:
+            from modules import views as views_module
+            views_module.debug_log(f"Error refreshing reference cache: {e}")
+        except Exception:
+            pass
+        return jsonify({'error': 'Failed to refresh reference cache'}), 500
+
+@debug_bp.route('/view_debug_log')
+def view_debug_log():
+    """View debug log file."""
+    try:
+        from modules import views as views_module
+        log_file = views_module._get_debug_log_file_path()
+        if os.path.exists(log_file):
+            with open(log_file, 'r', encoding='utf-8') as f:
+                log_content = f.read()
+            return f"<pre>{log_content}</pre>"
+        return "Debug log file not found."
+    except Exception as e:
+        return f"Error reading debug log: {e}"
 
 # Instructions for adding to your app:
 """

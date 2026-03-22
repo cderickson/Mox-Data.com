@@ -56,7 +56,7 @@
       </div>
 
       <div class="header-center">
-        {% set show_title_pages = ['views.changelog', 'views.faq', 'views.getting_started', 'views.data_dict', 'views.dashboards', 'views.table'] %}
+        {% set show_title_pages = ['views.faq', 'views.getting_started', 'views.data_dict', 'views.dashboards', 'views.table'] %}
         {% if request.endpoint in show_title_pages %}
           <h1 class="page-title section-title">{% block page_title %}{% endblock %}</h1>
         {% endif %}
@@ -78,10 +78,6 @@
               Profile
             </a>
             <div class="divider"></div>
-            <a href="{{ url_for('views.changelog') }}" class="user-dropdown-item">
-              <i class="fas fa-history nav-icon"></i>
-              Change Log
-            </a>
             <a href="{{ url_for('views.faq') }}" class="user-dropdown-item">
               <i class="fas fa-envelope nav-icon"></i>
               FAQ & Contact
@@ -127,12 +123,6 @@
                 <a href="{{ url_for('views.getting_started') }}" class="nav-link">
                   <i class="fas fa-play-circle nav-icon"></i>
                   <span class="nav-text">Getting Started</span>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a href="{{ url_for('views.changelog') }}" class="nav-link">
-                  <i class="fas fa-history nav-icon"></i>
-                  <span class="nav-text">Change Log</span>
                 </a>
               </li>
               <li class="nav-item">
@@ -244,13 +234,14 @@
             </ul>
           </div>
 
+          {% if user.is_admin or user.uid == 1 %}
           <div class="nav-section">
             <h3 class="nav-section-title">Debug</h3>
             <ul class="nav-list">
               <li class="nav-item">
-                <a href="/test_email" class="nav-link">
-                  <i class="fas fa-envelope nav-icon"></i>
-                  <span class="nav-text">Send Test Email</span>
+                <a href="#" class="nav-link" id="debugRefreshCacheButton" onclick="refreshReferenceCache(event)">
+                  <i class="fas fa-sync-alt nav-icon"></i>
+                  <span class="nav-text">Refresh Cache</span>
                 </a>
               </li>
               <li class="nav-item">
@@ -260,13 +251,14 @@
                 </a>
               </li>
               <li class="nav-item">
-                <a href="/db" class="nav-link">
+                <a href="/db" class="nav-link" target="_blank">
                   <i class="fas fa-database nav-icon"></i>
                   <span class="nav-text">Database Inspector</span>
                 </a>
               </li>
             </ul>
           </div>
+          {% endif %}
           {% endif %}
         </div>
 
@@ -684,7 +676,7 @@
           <div class="modal-body">           
             <div class="message-box standard">
               <h4><div>1</div><a href="https://github.com/cderickson/Scripts/raw/main/Zip-MTGO-Logs.exe" target="_blank">Download and run the Zip-MTGO-Logs script</a></h4>
-              <p style="margin-left: 15px;">The script code is open source and available on GitHub.</p><br>
+              <p style="margin-left: 15px;">The script code is open source and available on <a href="https://github.com/cderickson/Scripts/blob/main/zip-mtgo-logs.py" target="_blank">GitHub</a>.</p><br>
               <h4><div>2</div>Create a .zip file</h4>
               <p style="margin-left: 15px;">Use the <strong>Zip-MTGO-Logs</strong> script to create a .zip file of your GameLog and DraftLog files.</p><br>
               <h4><div>3</div>Ready for import</h4>
@@ -945,8 +937,6 @@
       
       // Reset form and help text
       document.getElementById('loadRevisionsForm').reset();
-      const helpText = document.getElementById('loadRevisionsHelpText');
-      helpText.innerHTML = 'Select the ALL_DATA file from your MTGO-Tracker save folder.';
     }
     
     function showReprocessModal() {
@@ -1236,10 +1226,9 @@
     function validateLoadRevisionsFiles() {
       const fileInput = document.getElementById('loadRevisionsFileInput');
       const submitBtn = document.getElementById('loadRevisionsSubmitBtn');
-      const helpText = document.getElementById('loadRevisionsHelpText');
+      if (!fileInput || !submitBtn) return;
       
       if (fileInput.files.length === 0) {
-        helpText.innerHTML = 'Select the ALL_DATA file from your MTGO-Tracker save folder.';
         submitBtn.disabled = true;
         return;
       }
@@ -1250,12 +1239,8 @@
       
       // Check if it's the ALL_DATA file
       if (fileName === 'ALL_DATA') {
-        helpText.innerHTML = '<i class="fas fa-check-circle"></i> ALL_DATA file selected.';
-        helpText.style.color = '#22c562';
         submitBtn.disabled = false;
       } else {
-        helpText.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Please select the ALL_DATA file.';
-        helpText.style.color = '#ef4444';
         submitBtn.disabled = true;
       }
     }
@@ -1351,6 +1336,45 @@
 
     // Make function globally accessible for refreshing after data operations
     window.refreshSidebarButtonStates = checkTableStatusAndUpdateButtons;
+
+    async function refreshReferenceCache(event) {
+      if (event) event.preventDefault();
+      const refreshButton = document.getElementById('debugRefreshCacheButton');
+      if (refreshButton) {
+        refreshButton.style.pointerEvents = 'none';
+        refreshButton.style.opacity = '0.6';
+      }
+
+      try {
+        const response = await fetch('/admin/refresh-reference-cache', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) {
+          throw new Error(result?.error || 'Failed to refresh cache');
+        }
+
+        const stats = result.stats || {};
+        alert(
+          `Reference cache refreshed.\n` +
+          `Input Options: ${stats.input_options_categories ?? 0}\n` +
+          `Multifaced Card Groups: ${stats.multifaced_groups ?? 0}\n` +
+          `All Deck Months: ${stats.all_decks_months ?? 0}`
+        );
+      } catch (error) {
+        console.error('Error refreshing reference cache:', error);
+        alert(error?.message || 'Failed to refresh cache');
+      } finally {
+        if (refreshButton) {
+          refreshButton.style.pointerEvents = '';
+          refreshButton.style.opacity = '';
+        }
+      }
+    }
 
     // Initialize table status check on page load
     document.addEventListener('DOMContentLoaded', function() {

@@ -99,19 +99,6 @@ def create_app():
 	app.config['EMAIL_CONFIRMATION_SALT'] = os.environ.get("EMAIL_CONFIRMATION_SALT", app.config.get('EMAIL_CONFIRMATION_SALT'))
 	app.config['RESET_PASSWORD_SALT'] = os.environ.get("RESET_PASSWORD_SALT", app.config.get('RESET_PASSWORD_SALT'))
 
-	# Reset debug log file on app startup
-	# try:
-	# 	log_dir = os.path.join('local-dev', 'data', 'logs')
-	# 	os.makedirs(log_dir, exist_ok=True)
-	# 	log_file = os.path.join(log_dir, 'debug_log.txt')
-		
-	# 	# Clear the debug log file
-	# 	with open(log_file, 'w', encoding='utf-8') as f:
-	# 		f.write(f"=== MTGO-DB Debug Log - Started {datetime.now()} ===\n")
-	# 	print(f"Debug log reset: {log_file}")
-	# except Exception as e:
-	# 	print(f"Warning: Could not reset debug log file: {e}")
-
 	# Initialize extensions
 	mail.init_app(app)
 	db.init_app(app)
@@ -128,6 +115,13 @@ def create_app():
 	migrate.init_app(app, db)
 
 	with app.app_context():
+		# Reset debug log file on app startup.
+		try:
+			from modules.views import clear_debug_log_file
+			clear_debug_log_file()
+		except Exception as e:
+			print(f"Warning: Could not reset debug log file: {e}")
+
 		# Local/dev convenience: auto-create SQLite tables.
 		# Production schema changes should be applied through explicit migrations.
 		is_db_cli_command = 'db' in sys.argv
@@ -140,6 +134,13 @@ def create_app():
 			cleanup_export_artifacts_on_startup()
 		except Exception as e:
 			print(f"Warning: Startup export cleanup failed: {e}")
+
+		# Warm reference-data caches on startup so first request is fast/consistent.
+		try:
+			from modules.views import ensure_data_loaded
+			ensure_data_loaded()
+		except Exception as e:
+			print(f"Warning: Startup reference-data preload failed: {e}")
 
 	login_manager.login_view = 'views.login'
 	login_manager.init_app(app)

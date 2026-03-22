@@ -27,9 +27,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 import os
 import io
+import builtins
 import time
 import tempfile
 import html
+import re
 from modules import modo
 import pickle
 import math 
@@ -48,34 +50,76 @@ import threading
 #logging.getLogger("smtplib").setLevel(logging.ERROR)
 #logging.getLogger("celery").setLevel(logging.ERROR)
 
+debug_log_lock = threading.Lock()
+
+def _get_debug_log_file_path():
+	"""Use a stable absolute path so app and Celery write/read same log file."""
+	project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+	log_dir = os.path.join(project_root, 'local-dev', 'data', 'logs')
+	return os.path.join(log_dir, 'debug_log.txt')
+
+def clear_debug_log_file():
+	"""Clear debug log file contents."""
+	log_file = _get_debug_log_file_path()
+	os.makedirs(os.path.dirname(log_file), exist_ok=True)
+	with debug_log_lock:
+		with open(log_file, 'w', encoding='utf-8') as f:
+			f.write("")
+
 # Debug logging function
 def debug_log(message):
 	"""Log debug messages to both console and file"""
 	timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 	log_message = f"[{timestamp}] {message}"
 	
-	# Print to console
-	print(log_message)
-	
-	# Write to log file
-	# try:
-	# 	log_dir = os.path.join('local-dev', 'data', 'logs')
-	# 	os.makedirs(log_dir, exist_ok=True)
-	# 	log_file = os.path.join(log_dir, 'debug_log.txt')
+	active = False
+
+	if active:
+		# Print to console
+		print(log_message)
 		
-	# 	with open(log_file, 'a', encoding='utf-8') as f:
-	# 		f.write(log_message + '\n')
-	# 	except Exception as e:
-	# 		debug_log(f"Warning: Could not write to log file: {e}")
+		# Write to log file
+		try:
+			log_file = _get_debug_log_file_path()
+			os.makedirs(os.path.dirname(log_file), exist_ok=True)
+			with debug_log_lock:
+				with open(log_file, 'a', encoding='utf-8') as f:
+					f.write(log_message + '\n')
+		except Exception as e:
+			# Avoid recursive logging if file logging itself fails.
+			print(f"[{timestamp}] Warning: Could not write to debug log file: {e}")
+
+		# Mirror debug logs to S3 when configured (one object per log line).
+		try:
+			if S3_ENABLED and s3_client and S3_BUCKET_NAME:
+				s3_log_key = f"{S3_LOGS_PREFIX}{datetime.datetime.now(datetime.timezone.utc).strftime('%Y/%m/%d/%H%M%S_%f')}.log"
+				s3_client.put_object(
+					Bucket=S3_BUCKET_NAME,
+					Key=s3_log_key,
+					Body=(log_message + '\n').encode('utf-8'),
+					ContentType='text/plain'
+				)
+		except Exception:
+			# Keep debug logging best-effort only.
+			pass
 
 page_size = 20
 
 # Initialize S3 client if configured
 try:
+    def _normalize_s3_prefix(raw_prefix, default_prefix=''):
+        value = (raw_prefix or default_prefix or '').strip().lstrip('/')
+        if value and not value.endswith('/'):
+            value += '/'
+        return value
+
     S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
-    S3_PREFIX = os.environ.get('S3_PREFIX', '').strip()
-    if S3_PREFIX and not S3_PREFIX.endswith('/'):
-        S3_PREFIX = S3_PREFIX + '/'
+    # uploads prefix is the legacy S3_PREFIX and should only be used for archived logs.
+    S3_UPLOADS_PREFIX = _normalize_s3_prefix(os.environ.get('S3_PREFIX', 'uploads/'), 'uploads/')
+    S3_EXPORTS_PREFIX = _normalize_s3_prefix(os.environ.get('S3_EXPORTS_PREFIX', 'exports/'), 'exports/')
+    S3_LOGS_PREFIX = _normalize_s3_prefix(os.environ.get('S3_LOGS_PREFIX', 'logs/'), 'logs/')
+    # Backward-compatible alias used by older code paths.
+    S3_PREFIX = S3_UPLOADS_PREFIX
     if S3_BUCKET_NAME:
         s3_client = boto3.client('s3', region_name=os.environ.get('AWS_REGION'))
         S3_ENABLED = True
@@ -83,10 +127,18 @@ try:
     else:
         s3_client = None
         S3_ENABLED = False
+        S3_UPLOADS_PREFIX = 'uploads/'
+        S3_EXPORTS_PREFIX = 'exports/'
+        S3_LOGS_PREFIX = 'logs/'
+        S3_PREFIX = S3_UPLOADS_PREFIX
         debug_log("S3 bucket not configured - using local storage")
 except Exception as e:
     s3_client = None
     S3_ENABLED = False
+    S3_UPLOADS_PREFIX = 'uploads/'
+    S3_EXPORTS_PREFIX = 'exports/'
+    S3_LOGS_PREFIX = 'logs/'
+    S3_PREFIX = S3_UPLOADS_PREFIX
     debug_log(f"Failed to initialize S3 client: {e}")
 
 s = URLSafeTimedSerializer(os.environ.get("URL_SAFETIMEDSERIALIZER", "dev-secret-key"))
@@ -109,6 +161,58 @@ def sanitize_dashboard_text(value, default='NA'):
 	if text == '' or text.lower() == 'nan':
 		return default
 	return html.escape(text, quote=True)
+
+
+class RestrictedUnpickler(pickle.Unpickler):
+	"""Allow only basic builtins when loading user-uploaded pickle data."""
+	_ALLOWED_BUILTINS = {
+		'list', 'dict', 'tuple', 'set', 'frozenset',
+		'str', 'bytes', 'bytearray',
+		'int', 'float', 'bool', 'complex',
+	}
+
+	def find_class(self, module, name):
+		if module == 'builtins' and name in self._ALLOWED_BUILTINS:
+			return getattr(builtins, name)
+		raise pickle.UnpicklingError(f'Forbidden pickle class: {module}.{name}')
+
+
+def safe_pickle_loads(payload):
+	"""Load pickle payload with restricted class resolution."""
+	return RestrictedUnpickler(io.BytesIO(payload)).load()
+
+
+def normalize_and_validate_revisions_all_data(all_data):
+	"""Validate expected ALL_DATA shape and row widths used by revision imports."""
+	if isinstance(all_data, tuple):
+		all_data = list(all_data)
+	if not isinstance(all_data, list):
+		raise ValueError('ALL_DATA payload must be a list')
+	if len(all_data) < 4:
+		raise ValueError('ALL_DATA payload must contain at least 4 sections')
+
+	normalized = list(all_data)
+	section_names = {0: 'match data', 1: 'game data', 2: 'play data'}
+	for section_idx in (0, 1, 2):
+		section = normalized[section_idx]
+		if not isinstance(section, list):
+			raise ValueError(f'ALL_DATA[{section_idx}] ({section_names[section_idx]}) must be a list')
+		coerced_rows = []
+		for row_idx, row in enumerate(section):
+			if not isinstance(row, (list, tuple)):
+				raise ValueError(f'ALL_DATA[{section_idx}][{row_idx}] must be a list/tuple')
+			row_list = list(row)
+			if section_idx == 0 and len(row_list) < 17:
+				raise ValueError(f'ALL_DATA[0][{row_idx}] must have at least 17 fields')
+			if section_idx == 1 and len(row_list) < 12:
+				raise ValueError(f'ALL_DATA[1][{row_idx}] must have at least 12 fields')
+			coerced_rows.append(row_list)
+		normalized[section_idx] = coerced_rows
+
+	if not isinstance(normalized[3], dict):
+		raise ValueError('ALL_DATA[3] (gameactions) must be a dict')
+
+	return normalized
 
 def unresolved_game_winner_filter():
 	"""Games whose winner is unresolved (null/blank/not P1,P2)."""
@@ -207,7 +311,7 @@ def update_draft_wins(uid, username, draft_id):
 	match_wins = 0
 	match_losses = 0
 	proc_dt = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
-	print(f"🔍 UPDATE DRAFT WINS DEBUG: uid = {uid}, username = {username}, draft_id = {draft_id}")
+	debug_log(f"UPDATE DRAFT WINS DEBUG: uid = {uid}, username = {username}, draft_id = {draft_id}")
 	associated_matches = Match.query.filter_by(
 		uid=uid, 
 		draft_id=draft_id, 
@@ -489,6 +593,7 @@ def process_logs(self, data):
 		new_files = []
 		replaced_files = []
 		skipped_files = []
+		uploaded_files = []
 		
 		# Create local storage directory if it doesn't exist
 		if not S3_ENABLED:  # Local mode
@@ -512,6 +617,7 @@ def process_logs(self, data):
 				# Local file storage logic
 				local_file_path = os.path.join(local_storage_dir, member.filename)
 				new_mtime = time.strftime('%Y%m%d%H%M', member.date_time + (0, 0, -1))
+				base_filename = member.filename.split('/')[-1]
 				debug_log(f"🔍 EXTRACT DEBUG: Local file path: {local_file_path}")
 				debug_log(f"🔍 EXTRACT DEBUG: New file mtime: {new_mtime}")
 				
@@ -526,7 +632,7 @@ def process_logs(self, data):
 						debug_log(f"🔍 EXTRACT DEBUG: Existing mtime: {existing_mtime}, New mtime: {new_mtime}")
 						if new_mtime >= existing_mtime:
 							debug_log(f"🔍 EXTRACT DEBUG: Skipping {member.filename} - new mtime >= existing mtime")
-							skipped_files.append(member.filename.split('/')[-1])
+							skipped_files.append(base_filename)
 							skipped += 1
 							continue
 						else:
@@ -539,7 +645,14 @@ def process_logs(self, data):
 								os.rename(extracted_path, local_file_path)
 							with open(meta_file, 'w') as f:
 								f.write(new_mtime)
-							replaced_files.append(member.filename.split('/')[-1])
+							replaced_files.append(base_filename)
+							uploaded_files.append({
+								'filename': base_filename,
+								'path': local_file_path,
+								'mtime': new_mtime,
+								'storage_type': 'local',
+								'log_type': logtype,
+							})
 							uploaded += 1
 					else:
 						debug_log(f"🔍 EXTRACT DEBUG: File exists but no metadata - replacing {member.filename}")
@@ -550,7 +663,14 @@ def process_logs(self, data):
 							os.rename(extracted_path, local_file_path)
 						with open(local_file_path + '.meta', 'w') as f:
 							f.write(new_mtime)
-						replaced_files.append(member.filename.split('/')[-1])
+						replaced_files.append(base_filename)
+						uploaded_files.append({
+							'filename': base_filename,
+							'path': local_file_path,
+							'mtime': new_mtime,
+							'storage_type': 'local',
+							'log_type': logtype,
+						})
 						uploaded += 1
 				else:
 					debug_log(f"🔍 EXTRACT DEBUG: New file - extracting {member.filename}")
@@ -561,23 +681,38 @@ def process_logs(self, data):
 						os.rename(extracted_path, local_file_path)
 					with open(local_file_path + '.meta', 'w') as f:
 						f.write(new_mtime)
-					new_files.append(member.filename.split('/')[-1])
+					new_files.append(base_filename)
+					uploaded_files.append({
+						'filename': base_filename,
+						'path': local_file_path,
+						'mtime': new_mtime,
+						'storage_type': 'local',
+						'log_type': logtype,
+					})
 					uploaded += 1
 			else:  # S3 storage
 				s3_key = f"{path}{member.filename}"
 				new_mtime = time.strftime('%Y%m%d%H%M', member.date_time + (0, 0, -1))
+				base_filename = member.filename.split('/')[-1]
 				# Check if object exists
 				try:
-					resp = s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=S3_PREFIX + s3_key)
+					resp = s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=S3_UPLOADS_PREFIX + s3_key)
 					existing_mtime = resp.get('Metadata', {}).get('original_mod_time')
 					if existing_mtime and new_mtime >= existing_mtime:
-						skipped_files.append(member.filename.split('/')[-1])
+						skipped_files.append(base_filename)
 						skipped += 1
 					else:
 						zip_ref.extract(member, os.getcwd())
 						with open(member.filename, 'rb') as file_to_upload:
-							s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=S3_PREFIX + s3_key, Body=file_to_upload, Metadata={'original_mod_time': new_mtime})
-						replaced_files.append(member.filename.split('/')[-1])
+							s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=S3_UPLOADS_PREFIX + s3_key, Body=file_to_upload, Metadata={'original_mod_time': new_mtime})
+						replaced_files.append(base_filename)
+						uploaded_files.append({
+							'filename': base_filename,
+							's3_key': s3_key,
+							'mtime': new_mtime,
+							'storage_type': 's3',
+							'log_type': logtype,
+						})
 						os.remove(member.filename)
 						uploaded += 1
 				except ClientError as e:
@@ -586,8 +721,15 @@ def process_logs(self, data):
 						file_mod_time = time.strftime('%Y%m%d%H%M', member.date_time + (0, 0, -1))
 						zip_ref.extract(member, os.getcwd())
 						with open(member.filename, 'rb') as file_to_upload:
-							s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=S3_PREFIX + s3_key, Body=file_to_upload, Metadata={'original_mod_time': file_mod_time})
-						new_files.append(member.filename.split('/')[-1])
+							s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=S3_UPLOADS_PREFIX + s3_key, Body=file_to_upload, Metadata={'original_mod_time': file_mod_time})
+						new_files.append(base_filename)
+						uploaded_files.append({
+							'filename': base_filename,
+							's3_key': s3_key,
+							'mtime': file_mod_time,
+							'storage_type': 's3',
+							'log_type': logtype,
+						})
 						os.remove(member.filename)
 						uploaded += 1
 					else:
@@ -596,7 +738,14 @@ def process_logs(self, data):
 		debug_log(f"🔍 EXTRACT DEBUG: new_files: {new_files}")
 		debug_log(f"🔍 EXTRACT DEBUG: replaced_files: {replaced_files}")
 		debug_log(f"🔍 EXTRACT DEBUG: skipped_files: {skipped_files}")
-		return {'skipped':skipped,'uploaded':uploaded, 'new_files':new_files, 'replaced_files':replaced_files, 'skipped_files':skipped_files}
+		return {
+			'skipped': skipped,
+			'uploaded': uploaded,
+			'new_files': new_files,
+			'replaced_files': replaced_files,
+			'skipped_files': skipped_files,
+			'uploaded_files': uploaded_files,
+		}
 
 	def is_unresolved_text(value):
 		if value is None:
@@ -638,73 +787,8 @@ def process_logs(self, data):
 		upload_dict = extract_zip_file(zip_ref, f"{uid}/")
 	
 	try:
-		# Get list of files to process based on storage type
-		files_to_process = []
-		
-		if not S3_ENABLED:  # Local file storage
-			local_storage_dir = os.path.join('local-dev', 'data', 'uploads', str(uid))
-			debug_log(f"🔍 DEBUG: Looking for files in: {local_storage_dir}")
-			debug_log(f"🔍 DEBUG: Directory exists: {os.path.exists(local_storage_dir)}")
-			if os.path.exists(local_storage_dir):
-				all_files = os.listdir(local_storage_dir)
-				debug_log(f"🔍 DEBUG: Found {len(all_files)} total files: {all_files}")
-				debug_log(f"🔍 DEBUG: Skipped files from upload_dict: {upload_dict['skipped_files']}")
-				for filename in all_files:
-					debug_log(f"🔍 DEBUG: Processing file: {filename}")
-					if filename.endswith('.meta'):  # Skip metadata files
-						debug_log(f"🔍 DEBUG: Skipping {filename} (metadata file)")
-						continue
-					if filename in upload_dict['skipped_files']:
-						debug_log(f"🔍 DEBUG: Skipping {filename} (in skipped_files)")
-						continue
-					
-					local_file_path = os.path.join(local_storage_dir, filename)
-					meta_file_path = local_file_path + '.meta'
-					
-					# Read metadata
-					if os.path.exists(meta_file_path):
-						with open(meta_file_path, 'r') as f:
-							mtime = f.read().strip()
-					else:
-						mtime = '202301010000'  # Default fallback
-					
-					log_type = get_logtype_from_filename(filename)
-					debug_log(f"🔍 DEBUG: File {filename} detected as log_type: '{log_type}'")
-					if log_type in ['GameLog', 'DraftLog']:
-						debug_log(f"🔍 DEBUG: Adding {filename} to files_to_process")
-						files_to_process.append({
-							'filename': filename,
-							'path': local_file_path,
-							'mtime': mtime,
-							'storage_type': 'local',
-							'log_type': log_type
-						})
-					else:
-						debug_log(f"🔍 DEBUG: Skipping {filename} - log_type '{log_type}' not in ['GameLog', 'DraftLog']")
-			else:
-				debug_log(f"🔍 DEBUG: Local storage directory does not exist: {local_storage_dir}")
-		else:  # S3 storage
-			prefix = f"{S3_PREFIX}{uid}/"
-			paginator = s3_client.get_paginator('list_objects_v2')
-			for page in paginator.paginate(Bucket=S3_BUCKET_NAME, Prefix=prefix):
-				for obj in page.get('Contents', []):
-					key = obj['Key']
-					filename = key.split('/')[-1]
-					if filename in upload_dict['skipped_files']:
-						continue
-					if get_logtype_from_filename(filename) in ['GameLog', 'DraftLog']:
-						try:
-							head = s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=key)
-							mtime = head.get('Metadata', {}).get('original_mod_time', '202301010000')
-							files_to_process.append({
-								'filename': filename,
-								's3_key': key,
-								'mtime': mtime,
-								'storage_type': 's3',
-								'log_type': get_logtype_from_filename(filename)
-							})
-						except ClientError:
-							continue
+		# Process only files uploaded/replaced in this request.
+		files_to_process = upload_dict.get('uploaded_files', [])
 		
 		# Now process all files with unified logic
 		debug_log(f"🔍 Processing {len(files_to_process)} files")
@@ -1125,9 +1209,9 @@ def process_revisions_from_app(self, data):
 		'updated_drafts':0
 	}
 	uid = data['user_id']
-	drafts_to_update = set()
 	submit_date = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
 	error_code = None
+	post_commit_warning = None
 
 	# Get Flask app from Celery BEFORE processing files
 	from app import create_app
@@ -1136,55 +1220,76 @@ def process_revisions_from_app(self, data):
 	with app.app_context():
 		debug_log(f'App Context')
 		try:
+			data['all_data'] = normalize_and_validate_revisions_all_data(data.get('all_data'))
 			debug_log(f'Starting Match Loop')
-			debug_log(f'Match Loop Length: {len(data["all_data"][0])}')
+			match_rows = data['all_data'][0]
+			debug_log(f'Match Loop Length: {len(match_rows)}')
 			proc_dt = datetime.datetime.now(pytz.utc).astimezone(pytz.timezone('US/Pacific'))
-			for match in data['all_data'][0]:
-				if Match.query.filter_by(uid=uid, match_id=match[0], p1=match[2]).first():
+			commit_every = 250
+			pending_writes = 0
+			match_ids = {m[0] for m in match_rows}
+			p1_names = {m[2] for m in match_rows}
+			draft_ids = {m[1] for m in match_rows if m[1]}
+
+			existing_matches = {}
+			if match_ids and p1_names:
+				for existing in Match.query.filter(
+					Match.uid == uid,
+					Match.match_id.in_(list(match_ids)),
+					Match.p1.in_(list(p1_names)),
+				).all():
+					existing_matches[(existing.match_id, existing.p1)] = existing
+
+			existing_draft_ids = set()
+			if draft_ids:
+				existing_draft_ids = {
+					did for (did,) in db.session.query(Draft.draft_id).filter(
+						Draft.uid == uid,
+						Draft.draft_id.in_(list(draft_ids)),
+					).all()
+				}
+
+			debug_log(
+				f'Prefetched for revision load: matches={len(existing_matches)}, drafts={len(existing_draft_ids)}'
+			)
+
+			for match in match_rows:
+				existing_match = existing_matches.get((match[0], match[2]))
+				if existing_match:
 					debug_log(f'Updating Match: {match[0]} is in match table')
-					existing_match = Match.query.filter_by(uid=uid, match_id=match[0], p1=match[2]).first()
-					if Draft.query.filter_by(uid=uid, draft_id=match[1]).first():
+					if match[1] in existing_draft_ids:
 						existing_match.draft_id = match[1]
-						drafts_to_update.add(match[1])
 					existing_match.p1_arch = match[3]
 					existing_match.p1_subarch = match[4]
 					existing_match.p2_arch = match[6]
 					existing_match.p2_subarch = match[7]
-					existing_match.p1_wins = match[11]
-					existing_match.p2_wins = match[12]
-					existing_match.match_winner = match[13]
 					existing_match.format = match[14]
 					existing_match.limited_format = match[15]
 					existing_match.match_type = match[16]
 					existing_match.proc_dt = proc_dt
-					merged_match = db.session.merge(existing_match)
-					db.session.add(merged_match)
 					counts['updated_matches'] += 1
-			debug_log(f'Starting Game Loop')
-			for game in data['all_data'][1]:
-				if Game.query.filter_by(uid=uid, match_id=game[0], game_num=game[3], p1=game[1]).first():
-					existing_game = Game.query.filter_by(uid=uid, match_id=game[0], game_num=game[3], p1=game[1]).first()
-					existing_game.game_winner = game[11]
-					existing_game.proc_dt = proc_dt
-					merged_game = db.session.merge(existing_game)
-					db.session.add(merged_game)
-					counts['updated_games'] += 1
-			for draft_id in sorted(drafts_to_update):
-				update_draft_wins(uid, data['username'], draft_id)
-				counts['updated_drafts'] += 1
+					pending_writes += 1
+					if pending_writes >= commit_every:
+						debug_log(f'Committing revision batch: {pending_writes} rows')
+						db.session.commit()
+						pending_writes = 0
+			debug_log('Skipping game winner and draft win updates for revision load')
 
-			try:
-				debug_log(f'Committing to DB')
+			if pending_writes > 0:
+				debug_log(f'Committing final revision batch: {pending_writes} rows')
 				db.session.commit()
-			except Exception as commit_error:
-				debug_log(f'DBError: {commit_error}')
-				db.session.rollback()
-				raise
 			debug_log(f'counts: {counts}')
-			build_cards_played_db(uid)
+
+			# Post-commit rebuild failures should not mark revision updates as failed.
+			try:
+				build_cards_played_db(uid)
+			except Exception as rebuild_error:
+				post_commit_warning = f'Cards rebuild warning: {rebuild_error}'
+				debug_log(f'POST-COMMIT WARNING: {post_commit_warning}')
 		except Exception as e:
 			debug_log(f'Error: {e}')
 			error_code = str(e)
+			db.session.rollback()
 			# Re-raise so Celery marks task state as FAILURE instead of returning DONE.
 			raise
 
@@ -1198,18 +1303,21 @@ def process_revisions_from_app(self, data):
 			submit_date=submit_date,
 			complete_date=complete_date,
 			task_type='Load Revisions From MTGO-Tracker',
-			error_code=error_code
+			error_code=(error_code or (post_commit_warning[:50] if post_commit_warning else None))
 		)
 		db.session.add(new_task_history)
+		task_id_display = 'N/A'
 		try:
 			db.session.commit()
-		except:
+			task_id_display = str(new_task_history.task_id)
+		except Exception as task_history_error:
+			debug_log(f'TASK HISTORY WARNING: Failed to save TaskHistory row: {task_history_error}')
 			db.session.rollback()
 
 		mail = app.extensions['mail']
-		msg = Message(f'MTGO-DB Load Report #{new_task_history.task_id}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
+		msg = Message(f'MTGO-DB Load Report #{task_id_display}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
 		msg.html = f'''
-		<h2 style="text-align: center">Load Report, Load Revisions from MTGO-Tracker - #{new_task_history.task_id}<br></h2>
+		<h2 style="text-align: center">Load Report, Load Revisions from MTGO-Tracker - #{task_id_display}<br></h2>
 		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}</h3><br><br>
 
 		<div style="display: flex; justify-content: center;">
@@ -1237,8 +1345,7 @@ def process_revisions_from_app(self, data):
 			</table>
 		</div>
 		<div style="display: flex; justify-content: center;">
-			<p style="text-align: center; font-style: italic;">Note: Two records are loaded and stored for each Match and Game.<br>
-			This flow applies revisions to existing records only.</p>
+			<p style="text-align: center; font-style: italic;">This flow applies revisions to existing match records only.</p>
 		</div>
 		'''
 		try:
@@ -1325,7 +1432,7 @@ def reprocess_logs(self, data):
 				else:
 					debug_log(f"🔍 REPROCESS: Local storage directory does not exist: {local_storage_dir}")
 			else:  # S3 storage
-				prefix = f"{S3_PREFIX}{uid}/"
+				prefix = f"{S3_UPLOADS_PREFIX}{uid}/"
 				paginator = s3_client.get_paginator('list_objects_v2')
 				for page in paginator.paginate(Bucket=S3_BUCKET_NAME, Prefix=prefix):
 					for obj in page.get('Contents', []):
@@ -1750,24 +1857,6 @@ def task_monitor():
 		
 		return render_template('task_monitor.html', user=current_user, task_data=task_data)
 
-@views.route('/update_vars', methods=['GET'])
-@login_required
-def update_vars():
-	global options, multifaced, all_decks
-	if (current_user.uid != 1):
-		return 'Forbidden', 403
-	try:
-		# Force reload by setting to None first
-		options = None
-		multifaced = None
-		all_decks = None
-		# Now load fresh data
-		ensure_data_loaded()
-	except Exception as e:
-		flash(f'Error loading auxiliary files: {e}', category='error')
-	flash('Loaded all auxiliary files successfully.', category='success')
-	return render_template('index.html', user=current_user)
-
 @views.route('/send_confirmation_email', methods=['POST'])
 def send_confirmation_email():
 	inputs = [request.form.get('confirm_email'), request.form.get('confirm_pwd')]
@@ -1802,7 +1891,10 @@ def send_confirmation_email():
 
 @views.route('/email', methods=['POST'])
 def email():
-	inputs = [request.form.get('email'), request.form.get('pwd'), request.form.get('pwd_confirm'), request.form.get('hero')]
+	inputs = [(request.form.get('email') or '').strip(), request.form.get('pwd'), request.form.get('pwd_confirm'), (request.form.get('hero') or '').strip()]
+	USERNAME_MIN_LEN = 3
+	USERNAME_MAX_LEN = 20
+	email_like_regex = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
 
 	if (not inputs[0]) or (not inputs[1]) or (not inputs[2]) or (not inputs[3]):
 		flash(f'Please fill in all fields.', category='error')
@@ -1812,6 +1904,12 @@ def email():
 		return render_template('register.html', user=current_user, inputs=inputs)
 	elif len(inputs[1]) < 6:
 		flash('Password must be at least 6 characters long.', category='error')
+		return render_template('register.html', user=current_user, inputs=inputs)
+	elif not re.match(email_like_regex, inputs[0]):
+		flash('Please provide a valid email address.', category='error')
+		return render_template('register.html', user=current_user, inputs=inputs)
+	elif not (USERNAME_MIN_LEN <= len(inputs[3]) <= USERNAME_MAX_LEN):
+		flash(f'Username must be {USERNAME_MIN_LEN}-{USERNAME_MAX_LEN} characters long.', category='error')
 		return render_template('register.html', user=current_user, inputs=inputs)
 	else:
 		user = Player.query.filter_by(email=inputs[0]).first()
@@ -1851,7 +1949,7 @@ def email():
 			return render_template('login.html', user=current_user, inputs=[email, ""], not_confirmed=True)
 
 		logout_user()
-		flash(f'User account created. Email confirmation sent (may need to check spam/junk folder).', category='success')
+		flash(f'User account created. Email confirmation sent (may need to check spam/junk).', category='success')
 		return redirect(url_for('views.index'))
 
 @views.route('/reset_pwd', methods=['POST'])
@@ -2053,10 +2151,13 @@ def load_revisions_from_app():
 			continue
 		if filename == 'ALL_DATA':
 			try:
-				all_data = pickle.loads(i.read())
+				all_data = safe_pickle_loads(i.read())
+				all_data = normalize_and_validate_revisions_all_data(all_data)
 				all_data = modo.invert_join(all_data)
-			except pickle.UnpicklingError:
-				flash(f'Unable to read file: {i.filename}.', category='error')
+				all_data = normalize_and_validate_revisions_all_data(all_data)
+			except (pickle.UnpicklingError, EOFError, ValueError, TypeError, AttributeError) as load_error:
+				debug_log(f'Load Revisions validation/read error for {i.filename}: {load_error}')
+				flash(f'Unable to read valid MTGO-Tracker save data from: {i.filename}.', category='error')
 				return redirect(url_for('views.index'))
 			process_total += len(all_data[0])
 			process_total += len(all_data[1])
@@ -2693,7 +2794,7 @@ def _safe_export_delete(storage_type, key):
 		return
 	try:
 		if storage_type == 's3':
-			s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=S3_PREFIX + key)
+			s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=S3_EXPORTS_PREFIX + key)
 		else:
 			if os.path.exists(key):
 				os.remove(key)
@@ -2883,8 +2984,8 @@ def generate_export_csv(self, data):
 			stored_csv_keys = []
 			if S3_ENABLED:
 				for artifact in csv_artifacts:
-					storage_key = f"{data['uid']}/export/{artifact['name']}"
-					s3_client.upload_file(artifact['path'], S3_BUCKET_NAME, S3_PREFIX + storage_key)
+					storage_key = f"{data['uid']}/{artifact['name']}"
+					s3_client.upload_file(artifact['path'], S3_BUCKET_NAME, S3_EXPORTS_PREFIX + storage_key)
 					stored_csv_keys.append(storage_key)
 					persisted_csv_keys.append(storage_key)
 			else:
@@ -2908,8 +3009,8 @@ def generate_export_csv(self, data):
 				with zipfile.ZipFile(tmp_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
 					for artifact in csv_artifacts:
 						zipf.write(artifact['path'], arcname=artifact['name'])
-				zip_key = f"{data['uid']}/export/{zip_name}"
-				s3_client.upload_file(tmp_zip_path, S3_BUCKET_NAME, S3_PREFIX + zip_key)
+				zip_key = f"{data['uid']}/{zip_name}"
+				s3_client.upload_file(tmp_zip_path, S3_BUCKET_NAME, S3_EXPORTS_PREFIX + zip_key)
 				persisted_zip_key = zip_key
 			else:
 				local_dir = _export_local_dir(data['uid'])
@@ -3028,7 +3129,7 @@ def api_export_latest_download():
 		if job.storage_type == 's3':
 			presigned_url = s3_client.generate_presigned_url(
 				'get_object',
-				Params={'Bucket': S3_BUCKET_NAME, 'Key': S3_PREFIX + job.zip_key},
+				Params={'Bucket': S3_BUCKET_NAME, 'Key': S3_EXPORTS_PREFIX + job.zip_key},
 				ExpiresIn=60
 			)
 			return redirect(presigned_url)
@@ -3074,7 +3175,7 @@ def export_download_token(token):
 		if job.storage_type == 's3':
 			presigned_url = s3_client.generate_presigned_url(
 				'get_object',
-				Params={'Bucket': S3_BUCKET_NAME, 'Key': S3_PREFIX + job.zip_key},
+				Params={'Bucket': S3_BUCKET_NAME, 'Key': S3_EXPORTS_PREFIX + job.zip_key},
 				ExpiresIn=60
 			)
 			return redirect(presigned_url)
@@ -3377,6 +3478,8 @@ def edit_profile():
 	payload = request.get_json() or {}
 	new_username = (payload.get('ProfileUsernameInputText') or '').strip()
 	new_profile_image = (payload.get('ProfileImageInputValue') or '').strip()
+	USERNAME_MIN_LEN = 3
+	USERNAME_MAX_LEN = 20
 
 	profile_images_dir = os.path.join(current_app.root_path, 'static', 'images', 'profile')
 	allowed_profile_ext = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
@@ -3398,6 +3501,14 @@ def edit_profile():
 	current_profile_image = user.profile_image or DEFAULT_PROFILE_IMAGE
 	next_username = new_username if new_username else current_username
 	next_profile_image = new_profile_image if new_profile_image else DEFAULT_PROFILE_IMAGE
+	username_changed = next_username != current_username
+
+	# Enforce explicit username policy for profile edits.
+	if username_changed and not (USERNAME_MIN_LEN <= len(next_username) <= USERNAME_MAX_LEN):
+		return jsonify({
+			'success': False,
+			'error': f'Username must be {USERNAME_MIN_LEN}-{USERNAME_MAX_LEN} characters long.'
+		}), 400
 
 	if (next_username == current_username) and (next_profile_image == current_profile_image):
 		return jsonify({'success': True, 'username': current_username, 'profile_image': current_profile_image, 'updated': False})
@@ -3406,7 +3517,8 @@ def edit_profile():
 	user.profile_image = next_profile_image
 	try:
 		db.session.commit()
-	except:
+	except Exception as commit_error:
+		debug_log(f'Error committing profile update for uid={current_user.uid}: {commit_error}')
 		db.session.rollback()
 		return jsonify({'success': False, 'error': 'Failed to update profile'}), 500
 	
@@ -3444,10 +3556,6 @@ def getting_started():
 @views.route('/faq', methods=['GET'])
 def faq():
 	return render_template('faq.html', user=current_user)
-
-@views.route('/changelog', methods=['GET'])
-def changelog():
-	return render_template('changelog.html', user=current_user)
 
 @views.route('/zip', methods=['GET'])
 def zip():
@@ -5060,33 +5168,6 @@ def refresh_reference_data_cache():
 		'ttl_seconds': REFERENCE_CACHE_TTL_SECONDS,
 	}
 
-@views.route('/admin/refresh-reference-cache', methods=['POST'])
-@login_required
-def manual_refresh_reference_cache():
-	"""Manually refresh reference caches (admin-only)."""
-	admin_emails = {
-		email.strip().lower()
-		for email in os.environ.get('ADMIN_EMAILS', '').split(',')
-		if email.strip()
-	}
-	current_email = (current_user.email or '').strip().lower()
-	is_authorized = bool(getattr(current_user, 'is_admin', False)) or (current_email in admin_emails)
-
-	if not is_authorized:
-		return jsonify({'error': 'Forbidden'}), 403
-
-	try:
-		stats = refresh_reference_data_cache()
-		return jsonify({
-			'success': True,
-			'message': 'Reference caches refreshed.',
-			'refreshed_at_utc': datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
-			'stats': stats,
-		}), 200
-	except Exception as e:
-		debug_log(f"Error refreshing reference cache: {e}")
-		return jsonify({'error': 'Failed to refresh reference cache'}), 500
-
 def get_card_image_url(card_name: str):
     """Fetch a Scryfall image URL for a given exact card name with simple caching.
     Handles MDFC/split/adventure by falling back to first face.
@@ -5130,59 +5211,6 @@ def get_card_image_url(card_name: str):
     except Exception as e:
         debug_log(f"Scryfall image fetch failed for '{card_name}': {e}")
         return None
-
-@views.route('/test_email')
-@login_required 
-def test_email():
-	"""Test email configuration"""
-	try:
-		from app import create_app
-		app = create_app()
-		
-		with app.app_context():
-			debug_log("🔍 Testing email configuration...")
-			debug_log(f"📧 MAIL_SERVER: {app.config.get('MAIL_SERVER')}")
-			debug_log(f"📧 MAIL_USERNAME: {app.config.get('MAIL_USERNAME')}")
-			debug_log(f"📧 MAIL_PORT: {app.config.get('MAIL_PORT')}")
-			debug_log(f"📧 MAIL_USE_TLS: {app.config.get('MAIL_USE_TLS')}")
-			debug_log(f"📧 MAIL_USE_SSL: {app.config.get('MAIL_USE_SSL')}")
-			
-			mail = app.extensions['mail']
-			msg = Message(
-				'MTGO-DB Test Email', 
-				sender=app.config.get('MAIL_USERNAME'), 
-				recipients=[current_user.email]
-			)
-			msg.body = 'This is a test email from MTGO-DB to verify email configuration.'
-			
-			try:
-				mail.send(msg)
-				debug_log("📧 Test email sent successfully!")
-				flash('Test email sent successfully! Check your inbox.', 'success')
-			except Exception as e:
-				debug_log(f"📧 Test email failed: {e}")
-				flash(f'Email test failed: {e}', 'error')
-				
-	except Exception as e:
-		debug_log(f"📧 Email test error: {e}")
-		flash(f'Email test error: {e}', 'error')
-	
-	return redirect(url_for('views.profile'))
-
-@views.route('/view_debug_log')
-@login_required
-def view_debug_log():
-	"""View debug log file"""
-	try:
-		log_file = os.path.join('local-dev', 'data', 'logs', 'debug_log.txt')
-		if os.path.exists(log_file):
-			with open(log_file, 'r', encoding='utf-8') as f:
-				log_content = f.read()
-			return f"<pre>{log_content}</pre>"
-		else:
-			return "Debug log file not found."
-	except Exception as e:
-		return f"Error reading debug log: {e}"
 
 # Modern API endpoints for Table functionality
 @views.route('/api/table/<table_name>/<int:page_num>')

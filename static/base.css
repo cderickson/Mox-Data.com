@@ -1033,33 +1033,37 @@ table tbody tr:last-child td {
 }
 
 .alert-success {
-    background-color: #d4edda;
+    background-color: #ffffff;
     color: black;
-    border-color: #c3e6cb;
+    border-color: #000000;
 }
 
 .alert-error {
-    background-color: #f8d7da;
+    background-color: #ffffff;
     color: black;
-    border-color: #f5c6cb;
+    border-color: #000000;
 }
 
 .alert-warning {
-    background-color: #fff3cd;
+    background-color: #ffffff;
     color: black;
-    border-color: #ffeaa7;
+    border-color: #000000;
 }
 
 .alert-info {
-    background-color: #d1ecf1;
+    background-color: #ffffff;
     color: black;
-    border-color: #bee5eb;
+    border-color: #000000;
 }
 
 .alert-content {
     flex: 1;
     font-size: 14px;
     line-height: 1.4;
+}
+
+.alert-content i {
+    margin-right: 8px;
 }
 
 .alert-close {

@@ -621,6 +621,135 @@ This avoids order-dependent partial recomputes when DraftLogs and GameLogs are p
   - `templates/base.html`
     - Reprocess modal + form submission
 
+## Load Revisions
+
+### Purpose
+
+Allows a logged-in user to import MTGO-Tracker desktop save data (`ALL_DATA` pickle) and apply user-revision fields onto existing `Match` rows.
+
+This is a targeted update flow (revisions only), not a full parser reload.
+
+---
+
+### End-to-End Flow (Validated)
+
+1. User clicks **Load Revisions** from the sidebar.
+2. Frontend opens modal and submits multipart form:
+   - `POST /load_revisions_from_app`
+   - expected filename: `ALL_DATA`
+3. Backend route reads uploaded bytes and performs safe deserialization:
+   - `safe_pickle_loads(...)` via restricted unpickler
+4. Backend validates payload shape:
+   - `normalize_and_validate_revisions_all_data(...)`
+5. Backend expands perspective data:
+   - `modo.invert_join(all_data)` (adds mirrored match/game rows)
+6. Backend validates shape again post-inversion, then enqueues Celery task:
+   - `process_revisions_from_app.delay(...)`
+7. Task validates shape again (defense-in-depth), prefetches existing DB keys, applies revision updates to existing `Match` rows, and commits in batches.
+8. Task writes `TaskHistory`, emails load report, and returns.
+
+---
+
+### Input + Security Validation
+
+Route-level protections:
+
+- `@login_required`
+- filename gate (`ALL_DATA`)
+- safe pickle loader (`RestrictedUnpickler`) that allows only basic builtins
+- schema/shape validation before enqueue
+
+Task-level protections:
+
+- re-validates `all_data` shape before any positional indexing
+
+This prevents unsafe object deserialization and avoids crashes from malformed row shapes.
+
+---
+
+### Expected ALL_DATA Contract
+
+The loader expects:
+
+- `all_data[0]`: list of match rows (each row list/tuple, min length 17)
+- `all_data[1]`: list of game rows (each row list/tuple, min length 12)
+- `all_data[2]`: list of play rows (list/tuple rows accepted)
+- `all_data[3]`: dict of game actions
+
+Both top-level tuple/list payloads are accepted (tuple normalized to list).
+
+---
+
+### Update Behavior (Current)
+
+`process_revisions_from_app` updates existing `Match` rows only (no inserts):
+
+- key lookup:
+  - `(uid, match_id, p1)`
+- writes:
+  - `draft_id` (only if referenced draft exists for user)
+  - `p1_arch`, `p1_subarch`
+  - `p2_arch`, `p2_subarch`
+  - `format`, `limited_format`, `match_type`
+  - `proc_dt`
+
+Intentionally not updated in this flow:
+
+- `Game.game_winner`
+- `Match.p1_wins`, `Match.p2_wins`, `Match.match_winner`
+- draft win/loss recompute (`update_draft_wins`)
+
+This keeps Load Revisions aligned with revision intent rather than gameplay result recomputation.
+
+---
+
+### Performance + Commit Behavior
+
+To reduce DB load and improve resilience:
+
+- prefetches all candidate matches once into in-memory map keyed by `(match_id, p1)`
+- prefetches all candidate draft IDs once into set
+- avoids repeated per-row `first()` queries
+- commits in batches (`commit_every = 250`) instead of one giant final commit
+
+Batch commits reduce blast radius of late-run failures to only the current uncommitted batch.
+
+---
+
+### Error Handling and Task Outcome
+
+- malformed/unsafe upload data is rejected in route with user-facing flash error
+- task-level exceptions still re-raise so Celery marks task failure
+- post-commit `build_cards_played_db(...)` failures are logged as warnings and do not flip an already-persisted revision run to failed
+- `TaskHistory` write failure is now explicitly logged (no bare `except`)
+  - email still sends with fallback task id `N/A` if history row cannot be written
+
+---
+
+### Frontend Validation Notes
+
+Load Revisions modal submit activation is filename-based (`ALL_DATA`) and no longer depends on a required help-text DOM node:
+
+- `validateLoadRevisionsFiles()` now safely handles missing optional help-text element
+- button enable/disable works even when help text is not rendered
+
+---
+
+### Related Components
+
+- Backend:
+  - `modules/views.py`
+    - `load_revisions_from_app`
+    - `process_revisions_from_app`
+    - `RestrictedUnpickler`
+    - `safe_pickle_loads`
+    - `normalize_and_validate_revisions_all_data`
+  - `modules/modo.py`
+    - `invert_join`
+- Frontend:
+  - `templates/base.html`
+    - Load Revisions modal + client-side file gate
+
 ## Revise Row(s)
 
 ### Purpose
@@ -1206,12 +1335,25 @@ Write:
 
 ### Purpose
 
-Allows an authenticated user to update profile attributes from `/profile`:
+Allows an authenticated user to view and update profile attributes from `/profile`.
+
+Displayed profile values:
+
+- `Player.email` (read-only)
+- `Player.username` (editable)
+- `Player.profile_image` filename (rendered as image preview)
+
+Editable fields:
 
 - `Player.username`
 - `Player.profile_image`
 
 The UI supports edit/cancel/save interactions without full-page reload on successful save.
+
+Intentional behavior:
+
+- changing username changes which hero-perspective data rows are shown throughout the app (queries keyed by `p1 == current_user.username`)
+- this is expected and intentionally not auto-migrated
 
 ---
 
@@ -1221,17 +1363,21 @@ The UI supports edit/cancel/save interactions without full-page reload on succes
 2. Backend loads profile page with:
    - current user details
    - available profile images from `static/images/profile`
-   - selected image fallback
+   - selected image fallback to default when stored filename is missing/invalid
 3. User clicks **Edit Profile**.
 4. Frontend switches to edit mode, exposing:
    - username input
    - profile image dropdown
+   - email remains display-only
 5. User clicks **Save Changes**.
 6. Frontend compares current values to original state:
    - if unchanged -> exits edit mode with no API call
    - if changed -> submits JSON to `POST /edit_profile`
-7. Backend validates/sanitizes payload, updates `Player`, commits transaction, and returns JSON response.
-8. Frontend applies returned values to display + preview and exits edit mode.
+7. Backend validates/sanitizes payload:
+   - username length policy `3-20` chars (for changed usernames)
+   - profile image constrained to server-side filesystem allowlist
+8. Backend updates `Player`, commits transaction, and returns JSON response.
+9. Frontend applies returned values to display + preview and exits edit mode.
 
 ---
 
@@ -1246,6 +1392,10 @@ Validation behavior:
 - reads JSON payload keys:
   - `ProfileUsernameInputText`
   - `ProfileImageInputValue`
+- trims username input server-side
+- username policy:
+  - if username changed, length must be `3-20`
+  - invalid -> `400` JSON error: `Username must be 3-20 characters long.`
 - rebuilds allowlist of profile images from filesystem
 - enforces profile image selection to allowlist; invalid values fall back to default image
 
@@ -1259,7 +1409,7 @@ Write behavior:
 
 - updates `Player.username` and/or `Player.profile_image`
 - commits on success
-- rolls back and returns error JSON on DB failure
+- rolls back, logs commit error, and returns error JSON on DB failure
 
 ---
 
@@ -1271,6 +1421,7 @@ Implemented in `static/profile.js`:
 - **Cancel** restores original values and exits edit mode
 - live image preview updates when dropdown selection changes
 - **Save** updates view with backend-confirmed values
+- when backend returns validation/error JSON (including HTTP 400), UI now surfaces specific server message instead of always showing a generic failure
 
 Performance behavior:
 
@@ -1286,6 +1437,7 @@ Primary protections:
 - `@login_required`
 - update is scoped to `Player.uid == current_user.uid`
 - profile image value constrained to server-side allowlist
+- username policy enforced server-side (`3-20`) independent of frontend checks
 
 ---
 

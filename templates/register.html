@@ -22,8 +22,8 @@
             
             <div class="form-group">
               <label for="reg_email" class="form-label">Email Address</label>
-              <input type="email" class="form-input" id="reg_email" name="email" placeholder="Enter your email address" value="{{ inputs.0 if inputs else '' }}" required>
-              <small>We'll never share your email with anyone else.</small>
+              <input type="text" class="form-input" id="reg_email" name="email" placeholder="Enter your email address" value="{{ inputs.0 if inputs else '' }}" autocomplete="email" required>
+              <div id="reg-email-indicator" style="margin-top: 8px; font-size: 13px; font-weight: 500; height: 18px; display: flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden;"></div>
             </div>
             
             <div class="form-group">
@@ -51,7 +51,7 @@
             <div class="form-group">
               <label for="reg_hero" class="form-label">MTGO Username</label>
               <input type="text" class="form-input" id="reg_hero" name="hero" placeholder="Enter your MTGO username" value="{{ inputs.3 if inputs else '' }}" required>
-              <small>This helps us identify your game logs and match data.</small>
+              <div id="reg-username-indicator" style="margin-top: 8px; font-size: 13px; font-weight: 500; height: 18px; display: flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden;"></div>
             </div>
 
             <button type="submit" class="auth-button">
@@ -75,6 +75,8 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+  const passwordInput = document.getElementById('reg_pwd');
+
   // Password visibility toggle
   const passwordToggles = document.querySelectorAll('.password-toggle');
   passwordToggles.forEach(toggle => {
@@ -150,17 +152,28 @@ document.addEventListener('DOMContentLoaded', function() {
   const matchIndicator = document.getElementById('password-match-indicator');
   
   function checkPasswordMatch() {
-    if (!confirmInput.value) {
-      matchIndicator.textContent = '';
+    const password = (passwordInput.value || '');
+    const confirmPassword = (confirmInput.value || '');
+
+    if (!password && !confirmPassword) {
+      setIndicator(matchIndicator, 'Use at least 6 characters.', helperColor);
       return;
     }
-    
-    if (passwordInput.value === confirmInput.value) {
-      matchIndicator.textContent = '✓ Passwords match';
-      matchIndicator.style.color = '#dcff1e';
+
+    if (password.length < 6) {
+      setIndicator(matchIndicator, '✗ Password must be at least 6 chars', '#b91c1c');
+      return;
+    }
+
+    if (!confirmPassword) {
+      setIndicator(matchIndicator, 'Confirm your password to validate.', helperColor);
+      return;
+    }
+
+    if (password === confirmPassword) {
+      setIndicator(matchIndicator, '✓ Passwords match', '#15803d');
     } else {
-      matchIndicator.textContent = '✗ Passwords do not match';
-      matchIndicator.style.color = '#ff4438';
+      setIndicator(matchIndicator, '✗ Passwords do not match', '#b91c1c');
     }
   }
   
@@ -171,29 +184,118 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Form validation
   const form = document.querySelector('form');
+  const emailInput = document.getElementById('reg_email');
+  const emailIndicator = document.getElementById('reg-email-indicator');
+  const usernameInput = document.getElementById('reg_hero');
+  const usernameIndicator = document.getElementById('reg-username-indicator');
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const helperColor = '#6b7280';
+
+  function setIndicator(el, text, color) {
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = color;
+  }
+
+  function validateEmailField(showInvalidIndicator = false) {
+    if (!emailInput || !emailIndicator) return true;
+    const email = (emailInput.value || '').trim();
+    const isValid = !!email && emailRegex.test(email);
+    if (!email) {
+      setIndicator(emailIndicator, 'Use format: name@example.com', helperColor);
+      return false;
+    }
+
+    if (isValid) {
+      setIndicator(emailIndicator, '✓ Valid email', '#15803d');
+    } else if (showInvalidIndicator) {
+      setIndicator(emailIndicator, '✗ Invalid email format', '#b91c1c');
+    } else {
+      setIndicator(emailIndicator, 'Use format: name@example.com', helperColor);
+    }
+    return isValid;
+  }
+
+  if (emailInput) {
+    emailInput.addEventListener('input', () => {
+      // Show live status once user starts typing.
+      if ((emailInput.value || '').trim()) {
+        validateEmailField(true);
+      } else {
+        setIndicator(emailIndicator, 'Use format: name@example.com', helperColor);
+      }
+    });
+    emailInput.addEventListener('blur', () => validateEmailField(true));
+  }
+
+  function validateUsernameField(showInvalidIndicator = false) {
+    if (!usernameInput || !usernameIndicator) return true;
+    const username = (usernameInput.value || '').trim();
+    const isValid = username.length >= 3 && username.length <= 20;
+
+    if (!username) {
+      setIndicator(usernameIndicator, 'This helps us identify your game logs.', helperColor);
+      return false;
+    }
+
+    if (isValid) {
+      setIndicator(usernameIndicator, '✓ Valid username', '#15803d');
+    } else if (showInvalidIndicator) {
+      setIndicator(usernameIndicator, '✗ Username must be 3-20 chars', '#b91c1c');
+    } else {
+      setIndicator(usernameIndicator, 'This helps us identify your game logs.', helperColor);
+    }
+    return isValid;
+  }
+
+  if (usernameInput) {
+    usernameInput.addEventListener('input', () => {
+      if ((usernameInput.value || '').trim()) {
+        validateUsernameField(true);
+      } else {
+        setIndicator(usernameIndicator, 'This helps us identify your game logs.', helperColor);
+      }
+    });
+    usernameInput.addEventListener('blur', () => validateUsernameField(true));
+  }
+
   if (form) {
     form.addEventListener('submit', function(e) {
       const email = document.getElementById('reg_email').value;
       const password = passwordInput.value;
       const confirmPassword = confirmInput.value;
       const username = document.getElementById('reg_hero').value;
+      const normalizedUsername = (username || '').trim();
       
+      // Show specific email error first when present but invalid.
+      if ((email || '').trim() && !validateEmailField(true)) {
+        e.preventDefault();
+        return;
+      }
+
       // Basic validation
-      if (!email || !password || !confirmPassword || !username) {
+      if (!email || !password || !confirmPassword || !normalizedUsername) {
         e.preventDefault();
         alert('Please fill in all fields.');
         return;
       }
-      
-      if (password !== confirmPassword) {
+
+      if (!validateUsernameField(true)) {
         e.preventDefault();
-        alert('Passwords do not match.');
         return;
       }
       
       if (password.length < 6) {
         e.preventDefault();
-        alert('Password must be at least 6 characters long.');
+        checkPasswordMatch();
+        confirmInput.focus();
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        e.preventDefault();
+        checkPasswordMatch();
+        confirmInput.focus();
         return;
       }
       
@@ -209,6 +311,11 @@ document.addEventListener('DOMContentLoaded', function() {
   if (firstInput) {
     firstInput.focus();
   }
+
+  // Initialize helper text rows for consistent card height without empty space.
+  validateEmailField(false);
+  validateUsernameField(false);
+  checkPasswordMatch();
 });
 </script>
 

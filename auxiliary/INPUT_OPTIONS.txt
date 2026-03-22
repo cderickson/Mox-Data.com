@@ -1,10 +1,5 @@
-- This file controls the dropdown menu options available in revision windows.
-- Add or delete options under their respective header.
-- Each option MUST be on it's own line.
-- Do not alter headers in this file.
------------------------------
-# Matches.Match_Type Options
-# Constructed Match Types:
+Matches
+Match_Type_Constructed
 -----------------------------
 League
 Preliminary
@@ -15,24 +10,24 @@ Practice
 Open Play BO1
 
 -----------------------------
-# Matches.Match_Type Options
-# Booster Draft Match Types:
+Matches
+Match_Type_Booster_Draft
 -----------------------------
 Draft League
 Swiss Draft
 Elimination Draft
 
 -----------------------------
-# Matches.Match_Type Options
-# Sealed Match Types:
+Matches
+Match_Type_Sealed
 -----------------------------
 Friendly Sealed League
 Competitive Sealed League
 Premier Sealed
 
 -----------------------------
-# Matches.P1/P2_Arch Options
-# Archetypes:
+Matches
+P1_P2_Arch
 -----------------------------
 Aggro
 Midrange
@@ -44,8 +39,8 @@ Ramp
 Rogue
 
 -----------------------------
-# Matches.Format Options
-# Constructed Formats:
+Matches
+Format_Constructed
 -----------------------------
 Vintage
 Legacy
@@ -53,19 +48,20 @@ Modern
 Standard
 Pioneer
 Pauper
+Premodern
 Other Constructed
 
 -----------------------------
-# Matches.Format Options
-# Limited Formats:
+Matches
+Format_Limited
 -----------------------------
 Booster Draft
 Sealed Deck
 Cube
 
 -----------------------------
-# Matches.Limited_Format Options
-# Cube Formats:
+Matches. Options
+Limited_Format_Cube
 -----------------------------
 Cube-Other
 Vintage Cube
@@ -73,8 +69,8 @@ Legacy Cube
 Modern Cube
 
 -----------------------------
-# Matches.Limited_Format Options
-# Booster Draft Formats:
+Matches
+Limited_Format_Booster_Draft
 -----------------------------
 ONEONEONE
 BROBROBRO
@@ -115,8 +111,8 @@ VMAVMAVMA
 Other Draft
 
 -----------------------------
-# Matches.Limited_Format Options
-# Sealed Formats:
+Matches
+Limited_Format_Sealed
 -----------------------------
 ONE x6
 BRO x6
@@ -153,5 +149,3 @@ AKH x6
 MM3 x6
 AER x6
 Other Sealed
-
------------------------------

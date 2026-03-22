@@ -95,10 +95,12 @@
     margin-top: 8px;
     font-size: 13px;
     font-weight: 500;
-    min-height: 18px;
+    height: 18px;
     display: flex;
     align-items: center;
     gap: 4px;
+    white-space: nowrap;
+    overflow: hidden;
 }
 
 /* Small help text styling */
