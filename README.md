@@ -2,7 +2,7 @@
 
 **Mox-Data.com** is a cloud-based data ingestion and analytics platform for **Magic: The Gathering Online**.
 
-Players upload raw MTGO gameplay files, process them into structured records, then explore and clean those records through tables, workflows, and dashboards.
+Players can upload raw MTGO gameplay files, process them into structured records, then explore and clean those records through tables and dashboards.
 
 For usage walkthroughs, visit the **[Getting Started](https://mox-data.com/getting_started)** page.
 
