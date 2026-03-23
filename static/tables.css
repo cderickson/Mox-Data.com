@@ -673,6 +673,11 @@
     border-color: #ddd;
 }
 
+#ReviseModal .dropdown-toggle:disabled:hover {
+    border-color: #ddd !important;
+    box-shadow: none !important;
+}
+
 #ReviseModal .dropdown-toggle:disabled span {
     color: #333 !important;
 }
@@ -786,6 +791,11 @@
     border-color: #ddd;
 }
 
+#ReviseMultiModal .dropdown-toggle:disabled:hover {
+    border-color: #ddd !important;
+    box-shadow: none !important;
+}
+
 #ReviseMultiModal .dropdown-toggle:disabled span {
     color: #333 !important;
 }
@@ -863,6 +873,11 @@
 #ReviseModal .form-input:hover {
     border-color: #0039A6;
     box-shadow: 0 2px 4px rgba(0, 57, 166, 0.1);
+}
+
+#ReviseModal .form-input:disabled:hover {
+    border-color: #ddd !important;
+    box-shadow: none !important;
 }
 
 #ReviseModal .form-input:focus {
@@ -974,6 +989,11 @@
 #ReviseMultiModal .form-input:hover {
     border-color: #0039A6;
     box-shadow: 0 2px 4px rgba(0, 57, 166, 0.1);
+}
+
+#ReviseMultiModal .form-input:disabled:hover {
+    border-color: #ddd !important;
+    box-shadow: none !important;
 }
 
 #ReviseMultiModal .form-input:focus {

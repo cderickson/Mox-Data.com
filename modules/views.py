@@ -144,7 +144,7 @@ except Exception as e:
 s = URLSafeTimedSerializer(os.environ.get("URL_SAFETIMEDSERIALIZER", "dev-secret-key"))
 views = Blueprint('views', __name__)
 
-DEFAULT_PROFILE_IMAGE = 'Waterspout-Warden.png'
+DEFAULT_PROFILE_IMAGE = 'Squirrel.png'
 EXPORT_TTL_SECONDS = 60 * 60  # 1 hour
 EXPORT_COOLDOWN_SECONDS = int(os.environ.get('EXPORT_COOLDOWN_SECONDS', str(15 * 60)))
 EXPORT_DOWNLOAD_SALT = os.environ.get("EXPORT_DOWNLOAD_SALT", "export-download-salt")
@@ -3242,8 +3242,8 @@ def best_guess():
 				cards2 = [play.primary_card for play in Play.query.filter_by(uid=current_user.uid, 
 																			 match_id=match.match_id, 
 																			 casting_player=match.p2).filter( Play.action.in_(['Land Drop', 'Casts']) )]
-				p1_data = modo.closest_list(set(cards1),all_decks,yyyy_mm)
-				p2_data = modo.closest_list(set(cards2),all_decks,yyyy_mm)
+				p1_data = modo.closest_list(set(cards1),all_decks,yyyy_mm,match.format)
+				p2_data = modo.closest_list(set(cards2),all_decks,yyyy_mm,match.format)
 				match.p1_subarch = p1_data[0]
 				match.p2_subarch = p2_data[0]
 				con_count += 1
@@ -3289,14 +3289,14 @@ def best_guess():
 					cards1 = [play.primary_card for play in Play.query.filter_by(uid=current_user.uid, 
 																				 match_id=match.match_id, 
 																				 casting_player=match.p1).filter( Play.action.in_(['Land Drop', 'Casts']) )]
-					p1_data = modo.closest_list(set(cards1),all_decks,yyyy_mm)
+					p1_data = modo.closest_list(set(cards1),all_decks,yyyy_mm,match.format)
 					match.p1_subarch = p1_data[0]
 					con_count += 1
 				if is_unresolved_text(match.p2_subarch):
 					cards2 = [play.primary_card for play in Play.query.filter_by(uid=current_user.uid, 
 																				 match_id=match.match_id, 
 																				 casting_player=match.p2).filter( Play.action.in_(['Land Drop', 'Casts']) )]
-					p2_data = modo.closest_list(set(cards2),all_decks,yyyy_mm)
+					p2_data = modo.closest_list(set(cards2),all_decks,yyyy_mm,match.format)
 					match.p2_subarch = p2_data[0]
 					con_count += 1
 	try:

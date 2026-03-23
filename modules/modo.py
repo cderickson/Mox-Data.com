@@ -365,8 +365,8 @@ def alter(player_name,original):
         player = player_name.replace(" ","+")
         player = player.replace(".","*")
     return player     
-def closest_list(cards_played,ad,yyyy_mm):
-    # Input:  Set{Strings},Dict{String : List[String,String,Set[Strings]]},String
+def closest_list(cards_played,ad,yyyy_mm,match_format=None):
+    # Input:  Set{Strings},Dict{String : List[String,String,Set[Strings]]},String,String|None
     # Output: [String,String]
     
     decks = []
@@ -386,24 +386,51 @@ def closest_list(cards_played,ad,yyyy_mm):
     if decks == []:
         return ["Unknown","NA"]
 
-    sim_list = []
-    for i in decks:
-        if i == None:
-            print("error: Null List")
-            continue
+    def _norm_format(value):
+        if value is None:
+            return ""
+        return str(value).strip().lower()
 
-        if len(i[2]) == 0:
-            sim = 0
-        else:
-            sim = len(cards_played.intersection(i[2]))/len(i[2])
-        sim = round((sim * 100),3)
-        sim_list.append(sim)
+    def _best_match(candidate_decks):
+        if candidate_decks == []:
+            return None
 
-    index = sim_list.index(max(sim_list))
-    if max(sim_list) > 20:
-        return [decks[index][0],decks[index][1]]
-    else:
-        return ["Unknown","NA"]
+        sim_list = []
+        valid_decks = []
+        for i in candidate_decks:
+            if i is None:
+                print("error: Null List")
+                continue
+
+            if len(i[2]) == 0:
+                sim = 0
+            else:
+                sim = len(cards_played.intersection(i[2]))/len(i[2])
+            sim = round((sim * 100),3)
+            sim_list.append(sim)
+            valid_decks.append(i)
+
+        if sim_list == []:
+            return None
+
+        max_sim = max(sim_list)
+        index = sim_list.index(max_sim)
+        if max_sim > 20:
+            return [valid_decks[index][0], valid_decks[index][1]]
+        return None
+
+    # Prefer decks with the same format (if available), then fall back.
+    selected_format = _norm_format(match_format)
+    if selected_format:
+        same_format_decks = [i for i in decks if _norm_format(i[1]) == selected_format]
+        format_match = _best_match(same_format_decks)
+        if format_match is not None:
+            return format_match
+
+    fallback_match = _best_match(decks)
+    if fallback_match is not None:
+        return fallback_match
+    return ["Unknown","NA"]
 def get_limited_subarch(cards_played):
     # Input:  Set{Strings}
     # Output: [String,String]

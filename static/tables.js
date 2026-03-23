@@ -10,6 +10,7 @@ class TableManager {
     this.cardImageCache = new Map();
     this.cardImageTooltip = null;
     this.activeCardCell = null;
+    this._boundPopStateHandler = null;
     
     // DOM elements
     this.tableBody = document.querySelector('tbody');
@@ -93,6 +94,9 @@ class TableManager {
         // Setup pagination listeners
         this.setupPaginationListeners();
       }
+
+      // Keep browser back/forward in sync with paginated table states.
+      this.setupPopStateListener();
       
     } catch (error) {
       console.error('Error initializing table manager:', error);
@@ -140,6 +144,7 @@ class TableManager {
 
       this.tableData = await response.json();
       this.currentPage = this.tableData.page_num || 1;
+      this.syncTablePageUrl(this.currentPage);
       
       hideProcessingModal();
       
@@ -154,6 +159,58 @@ class TableManager {
       console.error('Error loading table data:', error);
       this.showError('Failed to load table data');
     }
+  }
+
+  syncTablePageUrl(pageNum) {
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    const isTopLevelTablePage = (
+      pathParts.length === 3 &&
+      pathParts[0] === 'table' &&
+      pathParts[1] === this.tableName
+    );
+    if (!isTopLevelTablePage) return;
+
+    const targetPath = `/table/${this.tableName}/${pageNum}`;
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(
+        { tableName: this.tableName, pageNum },
+        '',
+        targetPath
+      );
+    }
+  }
+
+  setupPopStateListener() {
+    // Avoid duplicate listeners if manager gets re-initialized.
+    if (this._boundPopStateHandler) {
+      window.removeEventListener('popstate', this._boundPopStateHandler);
+    }
+
+    this._boundPopStateHandler = (event) => {
+      const stateTable = event.state?.tableName;
+      const statePage = parseInt(event.state?.pageNum, 10);
+
+      // If this is one of our pushed table states, load that page via API.
+      if (stateTable === this.tableName && !Number.isNaN(statePage)) {
+        this.loadTableData(statePage).catch(err => {
+          console.error('Error loading page from history state:', err);
+        });
+        return;
+      }
+
+      // Fallback: parse URL path for table page.
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      if (parts.length === 3 && parts[0] === 'table' && parts[1] === this.tableName) {
+        const pageFromPath = parseInt(parts[2], 10);
+        if (!Number.isNaN(pageFromPath) && pageFromPath !== this.currentPage) {
+          this.loadTableData(pageFromPath).catch(err => {
+            console.error('Error loading page from URL after popstate:', err);
+          });
+        }
+      }
+    };
+
+    window.addEventListener('popstate', this._boundPopStateHandler);
   }
 
   renderTable() {
@@ -502,8 +559,21 @@ class TableManager {
     }
 
 
+    // Preserve source page context for top-level table drill-downs
+    const currentParams = new URLSearchParams(window.location.search);
+    const fromPage = parseInt(currentParams.get('fromPage'), 10) || this.currentPage || 1;
+
     // Navigate to drill-down table
-    window.location.href = `/table/${targetTable}/${rowId}/${gameNum}`;
+    if (this.tableName === 'matches') {
+      window.location.href = `/table/${targetTable}/${rowId}/${gameNum}?fromPage=${fromPage}`;
+    } else if (this.tableName === 'games') {
+      // Pass through source matches page so Back from plays can keep context.
+      window.location.href = `/table/${targetTable}/${rowId}/${gameNum}?fromPage=${fromPage}`;
+    } else if (this.tableName === 'drafts') {
+      window.location.href = `/table/${targetTable}/${rowId}/${gameNum}?fromPage=${fromPage}`;
+    } else {
+      window.location.href = `/table/${targetTable}/${rowId}/${gameNum}`;
+    }
   }
 
   extractRowDataFromDOM(row) {
@@ -1182,6 +1252,9 @@ class TableManager {
 function navigateBack() {
   const currentUrl = window.location.pathname;
   const urlParts = currentUrl.split('/').filter(part => part.length > 0);
+  const query = new URLSearchParams(window.location.search);
+  const fromPage = parseInt(query.get('fromPage'), 10);
+  const safeFromPage = Number.isNaN(fromPage) || fromPage < 1 ? 1 : fromPage;
   
   // urlParts structure: ['table', table_name, row_id, game_num] for drill-down
   // or ['table', table_name, page_num] for regular tables
@@ -1193,13 +1266,13 @@ function navigateBack() {
     
     if (tableName === 'games') {
       // From games filtered by match → back to matches table
-      window.location.href = '/table/matches/1';
+      window.location.href = `/table/matches/${safeFromPage}`;
     } else if (tableName === 'plays') {
       // From plays filtered by game → back to games filtered by same match
-      window.location.href = `/table/games/${rowId}/0`;
+      window.location.href = `/table/games/${rowId}/0?fromPage=${safeFromPage}`;
     } else if (tableName === 'picks') {
       // From picks filtered by draft → back to drafts table
-      window.location.href = '/table/drafts/1';
+      window.location.href = `/table/drafts/${safeFromPage}`;
     }
   } else {
     // Fallback - shouldn't happen in normal usage
