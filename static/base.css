@@ -47,6 +47,17 @@ body {
     z-index: 1000;
 }
 
+.unified-header::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: #000000;
+    pointer-events: none;
+}
+
 .header-left {
     display: flex;
     align-items: center;
@@ -1116,6 +1127,7 @@ table tbody tr:last-child td {
     object-fit: cover;
     object-position: center;
     display: block;
+    border-bottom: 3px solid #000000;
 }
 
 .home-banner-strip {
@@ -2589,7 +2601,9 @@ body.js-loaded .faq-container .collapsible-tab .section-card-content {
 #LoadRevisionsModal .modal-footer .button,
 #LoadRevisionsModal .modal-footer button,
 #ReprocessModal .modal-footer .button,
-#ReprocessModal .modal-footer button {
+#ReprocessModal .modal-footer button,
+#ZipLogsModal .modal-footer .button,
+#ZipLogsModal .modal-footer button {
     width: 150px;   /* Match header action button width */
     padding: 8px 16px; /* Match header action button padding */
     justify-content: center;
