@@ -4,7 +4,7 @@
 
 Players can upload raw MTGO gameplay files, process them into structured records, then explore and clean those records through tables and dashboards.
 
-For usage walkthroughs, visit the **[Getting Started](https://mox-data.com/getting_started)** page.
+For usage walkthroughs, visit the **[Getting Started](https://mox-data.com/gettingstarted)** page.
 
 ## Latest Update
 

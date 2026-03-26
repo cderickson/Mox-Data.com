@@ -3568,7 +3568,7 @@ def filter_options():
 	filter_options_dict['Date2'] = date2[0:4] + '-' + date2[4:6] + '-' + date2[6:]
 	return jsonify(filter_options_dict)
 
-@views.route('/getting_started', methods=['GET'])
+@views.route('/gettingstarted', methods=['GET'])
 def getting_started():
 	return render_template('gettingstarted.html', user=current_user)
 
@@ -3594,7 +3594,7 @@ def reprocess():
 	flash(f'Your data is now being re-processed. This may take several minutes depending on the number of files. A Load Report will be emailed upon completion.', category='success')
 	return redirect('/')
 
-@views.route('/data_dictionary', methods=['GET'])
+@views.route('/datadictionary', methods=['GET'])
 def data_dict():
   return render_template('datadict.html', user=current_user)
 
