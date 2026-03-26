@@ -162,10 +162,10 @@
     overflow-wrap: anywhere;
     word-break: break-word;
     text-overflow: clip;
-    min-height: 56px;
+    min-height: 36px;
     height: auto;
-    padding-top: 6px !important;
-    padding-bottom: 6px !important;
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
 }
 
 #ProfileImageSelect option {

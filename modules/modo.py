@@ -370,19 +370,21 @@ def closest_list(cards_played,ad,yyyy_mm,match_format=None):
     # Output: [String,String]
     
     decks = []
-    yyyy = yyyy_mm[0:4]
-    mm = yyyy_mm[5:7]
-    if mm == "01":
-        mm = "12"
-        yyyy = str(int(yyyy) - 1)
-    else:
-        mm = str(int(mm) - 1).zfill(2)
-    yyyy_mm_prev = yyyy + "-" + mm
+    yyyy = int(yyyy_mm[0:4])
+    mm = int(yyyy_mm[5:7])
+    months_to_check = [yyyy_mm]
 
-    if yyyy_mm in ad:
-        decks = ad.get(yyyy_mm).copy()
-    if yyyy_mm_prev in ad:
-        decks.extend(ad.get(yyyy_mm_prev).copy())
+    for _ in range(2):
+        if mm == 1:
+            mm = 12
+            yyyy -= 1
+        else:
+            mm -= 1
+        months_to_check.append(f"{yyyy}-{str(mm).zfill(2)}")
+
+    for month_key in months_to_check:
+        if month_key in ad:
+            decks.extend(ad.get(month_key).copy())
     if decks == []:
         return ["Unknown","NA"]
 

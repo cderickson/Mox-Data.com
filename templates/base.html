@@ -56,7 +56,7 @@
       </div>
 
       <div class="header-center">
-        {% set show_title_pages = ['views.faq', 'views.getting_started', 'views.data_dict', 'views.dashboards', 'views.table'] %}
+        {% set show_title_pages = ['views.faq', 'views.getting_started', 'views.vintage', 'views.data_dict', 'views.dashboards', 'views.table'] %}
         {% if request.endpoint in show_title_pages %}
           <h1 class="page-title section-title">{% block page_title %}{% endblock %}</h1>
         {% endif %}
@@ -108,11 +108,18 @@
       </div>
     </header>
 
+    {% set sidebar_cookie = request.cookies.get('sidebarCollapsed') %}
+    {% if sidebar_cookie in ['true', 'false'] %}
+      {% set sidebar_collapsed = (sidebar_cookie == 'true') %}
+    {% else %}
+      {% set sidebar_collapsed = (not user.is_authenticated) %}
+    {% endif %}
+
     <div id="loadBlock" class="app-layout">
       <!-- Sidebar Navigation -->
-      <nav class="sidebar{% if request.cookies.get('sidebarCollapsed') == 'true' %} collapsed{% endif %}" id="sidebar">
-        <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleDesktopSidebar()" title="{% if request.cookies.get('sidebarCollapsed') == 'true' %}Expand Sidebar{% else %}Collapse Sidebar{% endif %}">
-          <i class="fas {% if request.cookies.get('sidebarCollapsed') == 'true' %}fa-chevron-right{% else %}fa-chevron-left{% endif %}"></i>
+      <nav class="sidebar{% if sidebar_collapsed %} collapsed{% endif %}" id="sidebar">
+        <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleDesktopSidebar()" title="{% if sidebar_collapsed %}Expand Sidebar{% else %}Collapse Sidebar{% endif %}">
+          <i class="fas {% if sidebar_collapsed %}fa-chevron-right{% else %}fa-chevron-left{% endif %}"></i>
         </button>
         <div class="sidebar-content">
           {% if not user.is_authenticated %}
@@ -293,7 +300,7 @@
       </nav>
 
       <!-- Main Content Area -->
-      <div class="main-content" id="main-content" {% if request.cookies.get('sidebarCollapsed') == 'true' %}style="margin-left: 50px;"{% endif %}>
+      <div class="main-content" id="main-content" {% if sidebar_collapsed %}style="margin-left: 50px;"{% endif %}>
         <!-- Page Content -->
         <main class="content-wrapper">
           {% block content %}{% endblock %}

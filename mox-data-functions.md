@@ -341,7 +341,7 @@ Subarchetype derivation:
 
 `closest_list` behavior:
 
-- compares against current month and previous month deck pools
+- compares against current month and previous two month deck pools
 - returns best deck name if similarity > 20%
 - otherwise returns `Unknown`
 

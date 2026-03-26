@@ -3557,6 +3557,10 @@ def getting_started():
 def faq():
 	return render_template('faq.html', user=current_user)
 
+@views.route('/vintage', methods=['GET'])
+def vintage():
+	return render_template('vintage.html', user=current_user)
+
 @views.route('/zip', methods=['GET'])
 def zip():
 	return send_file(os.path.join(os.getcwd() + '\\website\\static', 'Zip-MTGO-Logs.exe'), as_attachment=True)
