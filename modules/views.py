@@ -153,6 +153,25 @@ def _utc_now():
 	"""Return current UTC time using non-deprecated API (naive UTC for existing DB DateTime usage)."""
 	return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
+def _is_admin_authorized():
+	"""Allow admin-only routes for admins, uid=1, or ADMIN_EMAILS."""
+	try:
+		if not getattr(current_user, "is_authenticated", False):
+			return False
+		admin_emails = {
+			email.strip().lower()
+			for email in os.environ.get("ADMIN_EMAILS", "").split(",")
+			if email.strip()
+		}
+		current_email = (getattr(current_user, "email", "") or "").strip().lower()
+		return (
+			bool(getattr(current_user, "is_admin", False))
+			or (getattr(current_user, "uid", None) == 1)
+			or (current_email in admin_emails)
+		)
+	except Exception:
+		return False
+
 def sanitize_dashboard_text(value, default='NA'):
 	"""Escape DB/user-provided values before embedding into dashboard HTML."""
 	if value is None:
@@ -3559,6 +3578,8 @@ def faq():
 
 @views.route('/vintage', methods=['GET'])
 def vintage():
+	if not _is_admin_authorized():
+		return jsonify({'error': 'Forbidden'}), 403
 	return render_template('vintage.html', user=current_user)
 
 @views.route('/zip', methods=['GET'])

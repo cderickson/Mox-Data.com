@@ -56,7 +56,7 @@
       </div>
 
       <div class="header-center">
-        {% set show_title_pages = ['views.faq', 'views.getting_started', 'views.vintage', 'views.data_dict', 'views.dashboards', 'views.table'] %}
+        {% set show_title_pages = ['views.faq', 'views.getting_started', 'views.data_dict', 'views.dashboards', 'views.table'] %}
         {% if request.endpoint in show_title_pages %}
           <h1 class="page-title section-title">{% block page_title %}{% endblock %}</h1>
         {% endif %}
