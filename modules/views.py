@@ -148,6 +148,19 @@ DEFAULT_PROFILE_IMAGE = 'Squirrel.png'
 EXPORT_TTL_SECONDS = 60 * 60  # 1 hour
 EXPORT_COOLDOWN_SECONDS = int(os.environ.get('EXPORT_COOLDOWN_SECONDS', str(15 * 60)))
 EXPORT_DOWNLOAD_SALT = os.environ.get("EXPORT_DOWNLOAD_SALT", "export-download-salt")
+AUTH_LINK_TTL_SECONDS = 60 * 60  # 1 hour
+LOAD_REPORT_LABEL_COL_STYLE_CENTER = (
+	"font-size: 14pt; width: 320px; min-width: 320px; max-width: 320px; "
+	"white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"
+)
+LOAD_REPORT_LABEL_COL_STYLE_LEFT = (
+	"font-size: 14pt; width: 320px; min-width: 320px; max-width: 320px; "
+	"white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left"
+)
+LOAD_REPORT_VALUE_COL_STYLE = (
+	"font-size: 14pt; width: 125px; min-width: 125px; max-width: 125px; "
+	"white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"
+)
 
 def _utc_now():
 	"""Return current UTC time using non-deprecated API (naive UTC for existing DB DateTime usage)."""
@@ -171,6 +184,90 @@ def _is_admin_authorized():
 		)
 	except Exception:
 		return False
+
+def _format_ttl_text(seconds):
+	"""Return human-readable TTL text for auth emails."""
+	if seconds % 3600 == 0:
+		hours = seconds // 3600
+		return f'{hours} hour' if hours == 1 else f'{hours} hours'
+	if seconds % 60 == 0:
+		minutes = seconds // 60
+		return f'{minutes} minute' if minutes == 1 else f'{minutes} minutes'
+	return f'{seconds} seconds'
+
+def _set_auth_email_content(msg, intro_text, link, ttl_seconds=None):
+	"""Set text+HTML auth email content and attach inline header image when available."""
+	expiry_line = ''
+	if ttl_seconds:
+		expiry_line = f'This link expires in {_format_ttl_text(ttl_seconds)}.'
+	msg.body = f'{intro_text}\n\n{link}'
+	if expiry_line:
+		msg.body = f'{msg.body}\n\n{expiry_line}'
+
+	expiry_html = ''
+	if expiry_line:
+		expiry_html = f'<p>{html.escape(expiry_line)}</p>'
+	msg.html = (
+		'<div style="font-family: Arial, sans-serif; max-width: 640px;">'
+		'<img src="cid:header2" alt="Mox Data" style="display:block; width:100%; max-width:640px; height:auto; margin-bottom:16px;">'
+		f'<p>{html.escape(intro_text)}</p>'
+		f'<p><a href="{link}">{link}</a></p>'
+		f'{expiry_html}'
+		'</div>'
+	)
+
+	try:
+		image_path = os.path.join(current_app.root_path, 'static', 'images', 'emailheader2.png')
+		with open(image_path, 'rb') as image_file:
+			msg.attach(
+				filename='header2.png',
+				content_type='image/png',
+				data=image_file.read(),
+				disposition='inline',
+				headers=[['Content-ID', '<header2>']]
+			)
+	except Exception as image_error:
+		debug_log(f'Auth email header image attach skipped: {image_error}')
+
+def _render_load_report_table(rows):
+	"""Render standardized load report table for email templates."""
+	column_headers = ['Matches', 'Games', 'Plays', 'Drafts', 'Draft Picks']
+	header_html = ''.join(
+		f'<th style="{LOAD_REPORT_VALUE_COL_STYLE}">{header}</th>'
+		for header in column_headers
+	)
+
+	row_html_parts = []
+	for label, values in rows:
+		normalized_values = list(values or [])
+		normalized_values.extend([''] * max(0, 5 - len(normalized_values)))
+		normalized_values = normalized_values[:5]
+		value_cells = ''.join(
+			f'<td style="{LOAD_REPORT_VALUE_COL_STYLE}">{html.escape(str(value)) if value != "" else ""}</td>'
+			for value in normalized_values
+		)
+		row_html_parts.append(
+			f'<tr>'
+			f'<th style="{LOAD_REPORT_LABEL_COL_STYLE_LEFT}">{html.escape(str(label))}</th>'
+			f'{value_cells}'
+			f'</tr>'
+		)
+
+	return (
+		'<div style="display: flex; justify-content: center;">'
+		'<table>'
+		'<thead>'
+		'<tr>'
+		f'<th style="{LOAD_REPORT_LABEL_COL_STYLE_CENTER}">Load Result</th>'
+		f'{header_html}'
+		'</tr>'
+		'</thead>'
+		'<tbody>'
+		f'{"".join(row_html_parts)}'
+		'</tbody>'
+		'</table>'
+		'</div>'
+	)
 
 def sanitize_dashboard_text(value, default='NA'):
 	"""Escape DB/user-provided values before embedding into dashboard HTML."""
@@ -1122,77 +1219,20 @@ def process_logs(self, data):
 			debug_log(f"📧 LOAD REPORT: Task ID: {new_task_history.task_id}")
 			
 			mail = app.extensions['mail']
-			msg = Message(f'MTGO-DB Load Report #{new_task_history.task_id}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
+			msg = Message(f'Mox Data Load Report #{new_task_history.task_id}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
 			debug_log("📧 LOAD REPORT: Message object created")
 			
 			msg.html = f'''
 		<h2 style="text-align: center">Load Report, Import GameLogs - #{new_task_history.task_id}<br></h2>
 		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}</h3><br><br>
-
-		<div style="display: flex; justify-content: center;">
-			<table>
-				<thead>
-					<tr>
-						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Load Result</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Matches</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Games</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Plays</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Drafts</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Draft Picks</th>
-					</tr>
-				</thead>
-				<tbody>
-					<tr>
-						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Processed</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['total_gamelogs']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['total_draftlogs']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">New Records Loaded</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_matches']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_games']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_plays']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_drafts']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_picks']}</td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Records Updated</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['matches_replaced']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['games_replaced']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['plays_replaced']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['drafts_replaced']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['picks_replaced']}</td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Removed)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['gamelogs_skipped_removed']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['draftlogs_skipped_removed']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Empty)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['gamelogs_skipped_empty']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['draftlogs_skipped_empty']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 225px; min-width: 350px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Errors)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['gamelogs_skipped_error']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['draftlogs_skipped_error']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-				</tbody>
-			</table>	
-		</div>
+		{_render_load_report_table([
+			('Files Processed', [counts['total_gamelogs'], '', '', counts['total_draftlogs'], '']),
+			('New Records Loaded', [counts['new_matches'], counts['new_games'], counts['new_plays'], counts['new_drafts'], counts['new_picks']]),
+			('Records Updated', [counts['matches_replaced'], counts['games_replaced'], counts['plays_replaced'], counts['drafts_replaced'], counts['picks_replaced']]),
+			('Files Skipped (Removed)', [counts['gamelogs_skipped_removed'], '', '', counts['draftlogs_skipped_removed'], '']),
+			('Files Skipped (Empty)', [counts['gamelogs_skipped_empty'], '', '', counts['draftlogs_skipped_empty'], '']),
+			('Files Skipped (Errors)', [counts['gamelogs_skipped_error'], '', '', counts['draftlogs_skipped_error'], '']),
+		])}
 		<div style="display: flex; justify-content: center;">
 			<p style="text-align: center; font-style: italic;">Note: Two records are loaded and stored for each Match and Game.</p>
 		</div>
@@ -1334,35 +1374,13 @@ def process_revisions_from_app(self, data):
 			db.session.rollback()
 
 		mail = app.extensions['mail']
-		msg = Message(f'MTGO-DB Load Report #{task_id_display}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
+		msg = Message(f'Mox Data Load Report #{task_id_display}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
 		msg.html = f'''
 		<h2 style="text-align: center">Load Report, Load Revisions from MTGO-Tracker - #{task_id_display}<br></h2>
 		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}</h3><br><br>
-
-		<div style="display: flex; justify-content: center;">
-			<table>
-				<thead>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Load Result</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Matches</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Games</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Plays</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Drafts</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Draft Picks</th>
-					</tr>
-				</thead>
-				<tbody>
-					<tr>
-						<th style="font-size: 14pt; max-width: 350px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Records Updated</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['updated_matches']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['updated_games']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['updated_drafts']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-				</tbody>
-			</table>
-		</div>
+		{_render_load_report_table([
+			('Records Updated', [counts['updated_matches'], counts['updated_games'], '', counts['updated_drafts'], '']),
+		])}
 		<div style="display: flex; justify-content: center;">
 			<p style="text-align: center; font-style: italic;">This flow applies revisions to existing match records only.</p>
 		</div>
@@ -1762,75 +1780,18 @@ def reprocess_logs(self, data):
 			raise RuntimeError(f"reprocess_logs failed: {error_code or 'unknown error'}")
 
 		mail = app.extensions['mail']
-		msg = Message(f'MTGO-DB Load Report #{new_task_history.task_id}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
+		msg = Message(f'Mox Data Load Report #{new_task_history.task_id}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
 		msg.html = f'''
 		<h2 style="text-align: center">Load Report, Re-Processing Data - #{new_task_history.task_id}<br></h2>
 		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}</h3><br><br>
-
-		<div style="display: flex; justify-content: center;">
-			<table style="text-align: center">
-				<thead>
-					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Load Result</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Matches</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Games</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Plays</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Drafts</th>
-						<th style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">Draft Picks</th>
-					</tr>
-				</thead>
-				<tbody>
-					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Processed</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['total_gamelogs']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['total_draftlogs']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">New Records Loaded</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_matches']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_games']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_plays']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_drafts']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['new_picks']}</td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Removed)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['gamelogs_skipped_removed']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['draftlogs_skipped_removed']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Empty)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['gamelogs_skipped_empty']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['draftlogs_skipped_empty']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Files Skipped (Errors)</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['gamelogs_skipped_error']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['draftlogs_skipped_error']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-					<tr>
-						<th style="font-size: 14pt; max-width: 300px; min-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Records Updated</th>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['matches_updated']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center">{counts['drafts_updated']}</td>
-						<td style="font-size: 14pt; max-width: 125px; min-width: 125px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"></td>
-					</tr>
-				</tbody>
-			</table>
-		</div>
+		{_render_load_report_table([
+			('Files Processed', [counts['total_gamelogs'], '', '', counts['total_draftlogs'], '']),
+			('New Records Loaded', [counts['new_matches'], counts['new_games'], counts['new_plays'], counts['new_drafts'], counts['new_picks']]),
+			('Files Skipped (Removed)', [counts['gamelogs_skipped_removed'], '', '', counts['draftlogs_skipped_removed'], '']),
+			('Files Skipped (Empty)', [counts['gamelogs_skipped_empty'], '', '', counts['draftlogs_skipped_empty'], '']),
+			('Files Skipped (Errors)', [counts['gamelogs_skipped_error'], '', '', counts['draftlogs_skipped_error'], '']),
+			('Records Updated', [counts['matches_updated'], '', '', counts['drafts_updated'], '']),
+		])}
 		<div style="display: flex; justify-content: center;">
 			<p style="text-align: center; font-style: italic;">Note: Two records are loaded and stored for each Match and Game.</p>
 		</div>
@@ -1896,16 +1857,21 @@ def send_confirmation_email():
 		mail = current_app.extensions['mail'] 
 		try:
 			with current_app.app_context():
-				msg = Message('MTGO-Tracker - Email Confirmation', sender=current_app.config.get('MAIL_USERNAME'), recipients=[inputs[0]])
+				msg = Message('Mox Data - Email Confirmation', sender=current_app.config.get('MAIL_USERNAME'), recipients=[inputs[0]])
 				link = url_for('views.confirm_email', token=token, _external=True)
-				msg.body = 'Click the following link to confirm your email:\n\n{}'.format(link)
+				_set_auth_email_content(
+					msg,
+					'Click the following link to confirm your email:',
+					link,
+					ttl_seconds=AUTH_LINK_TTL_SECONDS
+				)
 				mail.send(msg)
 		except Exception as e:
 			debug_log(f'Error sending confirmation email: {e}')
-			flash('Unable to send confirmation email right now. Please try again shortly.', category='error')
+			flash('Unable to send confirmation email right now.\nPlease try again shortly.', category='error')
 			return render_template('login.html', user=current_user, inputs=inputs, not_confirmed=True)
 
-		flash(f'New confirmation email has been sent (may need to check spam/junk folder).', category='success')
+		flash(f'New confirmation email has been sent.\nYou may need to check spam/junk folder.', category='success')
 		return render_template('login.html', user=current_user, inputs=[inputs[0], ''], not_confirmed=True)
 
 @views.route('/email', methods=['POST'])
@@ -1957,9 +1923,14 @@ def email():
 		mail = current_app.extensions['mail'] 
 		try:
 			with current_app.app_context():
-				msg = Message('MTGO-Tracker - Email Confirmation', sender=current_app.config.get('MAIL_USERNAME'), recipients=[email])
+				msg = Message('Mox Data - Email Confirmation', sender=current_app.config.get('MAIL_USERNAME'), recipients=[email])
 				link = url_for('views.confirm_email', token=token, _external=True)
-				msg.body = 'Click the following link to confirm your email:\n\n{}'.format(link)
+				_set_auth_email_content(
+					msg,
+					'Click the following link to confirm your email:',
+					link,
+					ttl_seconds=AUTH_LINK_TTL_SECONDS
+				)
 				mail.send(msg)
 		except Exception as e:
 			debug_log(f'Error sending registration confirmation email: {e}')
@@ -1968,7 +1939,7 @@ def email():
 			return render_template('login.html', user=current_user, inputs=[email, ""], not_confirmed=True)
 
 		logout_user()
-		flash(f'User account created. Email confirmation sent (may need to check spam/junk).', category='success')
+		flash(f'User account created. Email confirmation sent.\nYou may need to check spam/junk folder.', category='success')
 		return redirect(url_for('views.index'))
 
 @views.route('/reset_pwd', methods=['POST'])
@@ -1984,21 +1955,26 @@ def reset_pwd():
 		mail = current_app.extensions['mail']
 		try:
 			with current_app.app_context():
-				msg = Message('MTGO-Tracker - Password Reset', sender=current_app.config.get('MAIL_USERNAME'), recipients=[email])
+				msg = Message('Mox Data - Password Reset', sender=current_app.config.get('MAIL_USERNAME'), recipients=[email])
 				link = url_for('views.reset_email', token=token, _external=True)
-				msg.body = 'Click the following link to reset your password:\n\n{}'.format(link)
+				_set_auth_email_content(
+					msg,
+					'Click the following link to reset your password:',
+					link,
+					ttl_seconds=AUTH_LINK_TTL_SECONDS
+				)
 				mail.send(msg)
 		except Exception as e:
 			debug_log(f'Error sending password reset email: {e}')
 
 	# Use a generic success message to avoid account enumeration.
-	flash('If an account exists for that email, a reset link has been sent (may need to check spam/junk folder).', category='success')
+	flash('If an account exists for that email, a reset link will be been sent.\nYou may need to check spam/junk folder.', category='success')
 	return render_template('login.html', user=current_user, inputs=[email,""], not_confirmed=False)
 
 @views.route('/confirm_email/<token>')
 def confirm_email(token):
 	try:
-		email = s.loads(token, salt=current_app.config.get('EMAIL_CONFIRMATION_SALT'), max_age=3600)
+		email = s.loads(token, salt=current_app.config.get('EMAIL_CONFIRMATION_SALT'), max_age=AUTH_LINK_TTL_SECONDS)
 		user = Player.query.filter_by(email=email).first()
 		if user is None:
 			return "User not found"
@@ -2009,7 +1985,7 @@ def confirm_email(token):
 		except:
 			db.session.rollback()
 		login_user(user, remember=True)
-		flash('Thank you for confirming your email. Welcome to your MTGO-Tracker profile page.', category="success")
+		flash('Thank you for confirming your email. Welcome to your Mox Data profile page.', category="success")
 		return redirect(url_for('views.profile'))
 	except SignatureExpired:
 		flash('Email confirmation link has expired.', category='error')
@@ -2021,7 +1997,7 @@ def confirm_email(token):
 @views.route('/reset_email/<token>')
 def reset_email(token):
 	try:
-		email = s.loads(token, salt=current_app.config.get('RESET_PASSWORD_SALT'), max_age=3600)
+		email = s.loads(token, salt=current_app.config.get('RESET_PASSWORD_SALT'), max_age=AUTH_LINK_TTL_SECONDS)
 		user = Player.query.filter_by(email=email).first()
 		if user is None:
 			flash('User not found.', category='error')
@@ -2045,7 +2021,7 @@ def change_pwd():
 		return redirect(url_for('views.index'))
 
 	try:
-		email = s.loads(token, salt=current_app.config.get('RESET_PASSWORD_SALT'), max_age=3600)
+		email = s.loads(token, salt=current_app.config.get('RESET_PASSWORD_SALT'), max_age=AUTH_LINK_TTL_SECONDS)
 	except SignatureExpired:
 		flash('Reset Password link has expired.', category='error')
 		return redirect(url_for('views.index'))
@@ -2150,7 +2126,12 @@ def load():
 
 	task = process_logs.delay({'email':current_user.email, 'file_stream':file_stream.getvalue(), 'user_id':current_user.uid, 'username':current_user.username})
 
-	flash(f'Your data is now being processed. This may take several minutes depending on the number of files. A Load Report will be emailed upon completion.', category='success')
+	flash(
+		f'Your data is now being processed.\n'
+		f'This may take several minutes depending on the number of files.\n'
+		f'A Load Report will be emailed upon completion.',
+		category='success'
+	)
 	return redirect(url_for('views.index'))
 
 @views.route('/load_revisions_from_app', methods=['POST'])
@@ -2176,7 +2157,7 @@ def load_revisions_from_app():
 				all_data = normalize_and_validate_revisions_all_data(all_data)
 			except (pickle.UnpicklingError, EOFError, ValueError, TypeError, AttributeError) as load_error:
 				debug_log(f'Load Revisions validation/read error for {i.filename}: {load_error}')
-				flash(f'Unable to read valid MTGO-Tracker save data from: {i.filename}.', category='error')
+				flash(f'Unable to read valid MTGO-Tracker save data from:\n{i.filename}.', category='error')
 				return redirect(url_for('views.index'))
 			process_total += len(all_data[0])
 			process_total += len(all_data[1])
@@ -2190,7 +2171,7 @@ def load_revisions_from_app():
 
 	task = process_revisions_from_app.delay({'all_data':all_data, 'user_id':current_user.uid, 'username':current_user.username, 'email':current_user.email})
 
-	flash(f'MTGO-Tracker save data is being analyzed. A Load Report will be emailed upon completion.', category='success')
+	flash(f'MTGO-Tracker save data is being analyzed.\nA Load Report will be emailed upon completion.', category='success')
 	return redirect(url_for('views.index'))
 
 @views.route('/table/<table_name>/<page_num>')
@@ -3591,7 +3572,12 @@ def zip():
 def reprocess():
 	task = reprocess_logs.delay({'email':current_user.email, 'user_id':current_user.uid, 'username':current_user.username})
 
-	flash(f'Your data is now being re-processed. This may take several minutes depending on the number of files. A Load Report will be emailed upon completion.', category='success')
+	flash(
+		f'Your data is now being re-processed.\n'
+		f'This may take several minutes depending on the number of files.\n'
+		f'A Load Report will be emailed upon completion.',
+		category='success'
+	)
 	return redirect('/')
 
 @views.route('/datadictionary', methods=['GET'])

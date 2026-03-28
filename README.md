@@ -8,7 +8,7 @@ For usage walkthroughs, visit the **[Getting Started](https://mox-data.com/getti
 
 ## Latest Update
 
-### v1.0.0 - Initial Release (2026-03-23)
+### v1.0.0 - Initial Release (2026-03-29)
 
 - First public release of Mox Data (web-based MTGO-Tracker experience).
 - Cloud-based ingestion for `GameLog` and `DraftLog` files.

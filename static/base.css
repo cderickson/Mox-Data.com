@@ -1095,10 +1095,15 @@ table tbody tr:last-child td {
     flex: 1;
     font-size: 14px;
     line-height: 1.4;
+    white-space: normal;
 }
 
 .alert-content i {
     margin-right: 8px;
+}
+
+.alert-message {
+    white-space: pre-line;
 }
 
 .alert-close {

@@ -929,14 +929,15 @@ function showFlashMessage(message, category = 'info') {
   }
   
   alertDiv.innerHTML = `
-    <div class="alert-content">
-      <i class="${iconClass}" style="margin-right: var(--spacing-sm); color: ${iconColor};"></i>
-      ${message}
-    </div>
+    <div class="alert-content"><i class="${iconClass}" style="margin-right: var(--spacing-sm); color: ${iconColor};"></i><span class="alert-message"></span></div>
     <button type="button" class="alert-close" onclick="this.parentElement.remove()">
       <i class="fas fa-times"></i>
     </button>
   `;
+  const alertMessage = alertDiv.querySelector('.alert-message');
+  if (alertMessage) {
+    alertMessage.textContent = String(message ?? '');
+  }
   
   // Always append to flash container (newest messages at bottom)
   flashContainer.appendChild(alertDiv);
