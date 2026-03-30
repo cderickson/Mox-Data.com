@@ -15,6 +15,55 @@ fileConfig(config.config_file_name)
 logger = logging.getLogger('alembic.env')
 
 
+def _normalize_identifier(value):
+    if value is None:
+        return ""
+    # Normalize quoting/brackets so we can match table names robustly.
+    return str(value).strip().strip('"').strip("'")
+
+def _is_vapi_table(name, schema=None):
+    normalized_name = _normalize_identifier(name).lower()
+    normalized_schema = _normalize_identifier(schema).lower()
+
+    if normalized_schema in {"vapi", "[vapi]"}:
+        return True
+
+    candidates = {normalized_name}
+    if normalized_schema:
+        candidates.add(f"{normalized_schema}.{normalized_name}")
+
+    for candidate in candidates:
+        if candidate.startswith("[vapi].") or candidate.startswith("vapi."):
+            return True
+    return False
+
+def include_name(name, type_, parent_names):
+    """Exclude external vapi dataset objects from Alembic operations."""
+    if type_ == "table":
+        schema_name = parent_names.get("schema_name") if parent_names else None
+        if _is_vapi_table(name, schema=schema_name):
+            return False
+    return True
+
+def include_object(object_, name, type_, reflected, compare_to):
+    """Exclude external vapi dataset objects from autogenerate diffs."""
+    table_name = None
+    schema_name = None
+
+    if type_ == "table":
+        table_name = name
+        schema_name = getattr(object_, "schema", None)
+    else:
+        table = getattr(object_, "table", None)
+        if table is not None:
+            table_name = getattr(table, "name", None)
+            schema_name = getattr(table, "schema", None)
+
+    if _is_vapi_table(table_name, schema=schema_name):
+        return False
+
+    return True
+
 def get_engine():
     try:
         # this works with Flask-SQLAlchemy<3 and Alchemical
@@ -65,7 +114,11 @@ def run_migrations_offline():
     """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url, target_metadata=get_metadata(), literal_binds=True
+        url=url,
+        target_metadata=get_metadata(),
+        literal_binds=True,
+        include_name=include_name,
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -93,6 +146,10 @@ def run_migrations_online():
     conf_args = current_app.extensions['migrate'].configure_args
     if conf_args.get("process_revision_directives") is None:
         conf_args["process_revision_directives"] = process_revision_directives
+    if conf_args.get("include_name") is None:
+        conf_args["include_name"] = include_name
+    if conf_args.get("include_object") is None:
+        conf_args["include_object"] = include_object
 
     connectable = get_engine()
 

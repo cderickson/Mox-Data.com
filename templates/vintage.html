@@ -3,7 +3,1785 @@
 {% block title %}Mox Data - Vintage{% endblock %}
 {% block page_title %}Vintage Data{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboards.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='tables.css') }}">
+<style>
+  .filters-sidebar .section-thin-card {
+    margin-bottom: 12px;
+  }
+
+  .filters-sidebar .section-thin-card:last-child {
+    margin-bottom: 0;
+  }
+
+  .vintage-kpi-winner {
+    background: #fff7db;
+    border: 1px solid #f3e2a3;
+  }
+
+  .vintage-kpi-runner-up {
+    background: #f2f4f7;
+    border: 1px solid #d8dde6;
+  }
+
+  .vintage-kpi-runner-up .kpi-value {
+    font-size: 20px;
+  }
+
+  .vintage-kpi-unique {
+    margin-top: 16px;
+  }
+
+  /* Event Explorer-only KPI layout tweaks */
+  .vintage-metrics-body.event-explorer-mode #runnerUpCard {
+    width: 82%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .vintage-metrics-body.event-explorer-mode #uniquePlayersCard {
+    margin-top: 24px;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="content-wrapper">
+  <div class="dashboard-container">
+    <div class="dashboard-layout">
+      <!-- Filters Sidebar -->
+      <div class="filters-sidebar">
+        <div class="section-card section-thin-card">
+          <div class="section-card-header">
+            <h2 class="section-card-title">
+              <i class="fas fa-filter"></i>
+              Filters
+            </h2>
+          </div>
+          <div class="section-card-body section-thin-body">
+            <form id="vintageFilters">
+              <div class="filter-group">
+                <label class="filter-label">Date Range</label>
+                <div class="date-inputs">
+                  <input type="date" class="filter-select" id="startDate" name="startDate" placeholder="Start Date">
+                  <input type="date" class="filter-select" id="endDate" name="endDate" placeholder="End Date">
+                </div>
+              </div>
+
+              <div class="filter-group">
+                <label class="filter-label" for="eventTypeFilter">Event Type</label>
+                <select class="filter-select" id="eventTypeFilter" name="eventType">
+                  <option value="">All Event Types</option>
+                </select>
+              </div>
+
+              <div class="filter-group">
+                <label class="filter-label" for="archetypeFilter">Archetype</label>
+                <select class="filter-select" id="archetypeFilter" name="archetype">
+                  <option value="">All Archetypes</option>
+                </select>
+              </div>
+
+              <div class="filter-group">
+                <label class="filter-label" for="subarchetypeFilter">Subarchetype</label>
+                <select class="filter-select" id="subarchetypeFilter" name="subarchetype">
+                  <option value="">All Subarchetypes</option>
+                </select>
+              </div>
+
+              <div class="filter-group" id="playerFilterGroup">
+                <label class="filter-label" for="playerFilter">Player</label>
+                <select class="filter-select" id="playerFilter" name="player" disabled>
+                  <option value="">All Players</option>
+                </select>
+              </div>
+
+              <div class="filters-actions">
+                <button type="button" class="button secondary" onclick="clearVintageFilters()">
+                  <i class="fas fa-undo"></i>
+                  Clear Filters
+                </button>
+                <button type="button" class="button primary" onclick="applyVintageFilters()">
+                  <i class="fas fa-check"></i>
+                  Apply Filters
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div class="section-card section-thin-card">
+          <div class="section-card-header">
+            <h2 class="section-card-title">
+              <i class="fas fa-users"></i>
+              Metrics
+            </h2>
+          </div>
+          <div class="section-card-body section-thin-body vintage-metrics-body" id="vintageMetricsBody">
+            <div class="dashboard-kpi-card vintage-kpi-winner" id="winnerCard">
+              <div class="kpi-title">Winner</div>
+              <div class="kpi-value" id="winnerValue">--</div>
+              <div class="kpi-subtitle" id="winnerSubtitle">Selected event</div>
+            </div>
+            <div class="dashboard-kpi-card vintage-kpi-runner-up" id="runnerUpCard" style="margin-top: 10px;">
+              <div class="kpi-title">Runner-Up</div>
+              <div class="kpi-value" id="runnerUpValue">--</div>
+              <div class="kpi-subtitle" id="runnerUpSubtitle">Selected event</div>
+            </div>
+            <div class="dashboard-kpi-card vintage-kpi-unique" id="uniquePlayersCard">
+              <div class="kpi-title">Unique Players</div>
+              <div class="kpi-value" id="uniquePlayersValue">--</div>
+              <div class="kpi-subtitle">Distinct P1 Player Names</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Dashboard Content -->
+      <div class="dashboard-main">
+        <!-- Dashboard Controls -->
+        <div class="section-card section-thin-card">
+          <div class="section-card-header">
+            <div class="dashboard-controls-header">
+              <h2 class="section-card-title">
+                <i class="fas fa-tachometer-alt"></i>
+                Dashboard Controls
+              </h2>
+              <div class="dashboard-edit-controls-header">
+                <button type="button" class="button primary" onclick="generateVintageDashboard()">
+                  <i class="fas fa-chart-bar"></i>
+                  Generate Dashboard
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="section-card-body section-thin-body">
+            <div class="dashboard-selector">
+              <label for="dashboardType"><strong>Dashboard Type:</strong></label>
+              <select class="dashboard-type-select" id="dashboardType" name="dashboardType">
+                <option value="metagame-breakdown" selected>Metagame Breakdown</option>
+                <option value="event-explorer">Event Explorer</option>
+                <option value="player-leaderboard">Player Leaderboard</option>
+                <option value="matchup-heatmap">Matchup Heatmap</option>
+                <option value="matchup-graph">Matchup Graph</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dashboard Content Area -->
+        <div class="dashboard-content" id="dashboardContent">
+          <div class="section-card section-thin-card" id="loadingState" style="display: none;">
+            <div class="section-card-header">
+              <h2 class="section-card-title">
+                <i class="fas fa-spinner"></i>
+                Generating Dashboard
+              </h2>
+            </div>
+            <div class="section-card-body section-thin-body">
+              <div class="loading-state-content">
+                <div class="spinner"></div>
+                <h3>Generating Dashboard...</h3>
+                <p>Please wait while we process your data.</p>
+              </div>
+            </div>
+          </div>
+
+          <div id="dashboardResults"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
+
+<script>
+let vintageFilterOptions = {};
+let vintageScatterChart = null;
+let vintageEventExplorerScatterChart = null;
+let vintageEventPlayerBarChart = null;
+let vintageEventMwpBarChart = null;
+let vintagePlayerDecksBarChart = null;
+let vintageMatchupOppArchChart = null;
+let vintageMatchupOppSubarchChart = null;
+let selectedEventId = '';
+let previousDashboardType = '';
+
+document.addEventListener('DOMContentLoaded', function() {
+  loadVintageFilterOptions();
+
+  const dashboardTypeSelect = document.getElementById('dashboardType');
+  if (dashboardTypeSelect) {
+    previousDashboardType = dashboardTypeSelect.value || '';
+    dashboardTypeSelect.addEventListener('change', function() {
+      // Hidden Event Explorer filter should reset when switching dashboard types.
+      selectedEventId = '';
+      resetPlayerFilterSelection();
+      const nextDashboardType = this.value || '';
+      const resetArchetypeToAll = (previousDashboardType === 'matchup-graph' && nextDashboardType !== 'matchup-graph');
+      syncArchetypeFilterState(resetArchetypeToAll);
+      previousDashboardType = nextDashboardType;
+      syncPlayerFilterState();
+    });
+  }
+
+  syncPlayerFilterState();
+});
+
+window.addEventListener('beforeunload', function() {
+  // Ensure hidden event selection does not persist across page leave/reload.
+  selectedEventId = '';
+  resetPlayerFilterSelection();
+});
+
+function resetPlayerFilterSelection() {
+  const playerFilter = document.getElementById('playerFilter');
+  if (playerFilter) {
+    playerFilter.value = '';
+  }
+}
+
+function destroyVintageMatchupGraphCharts() {
+  if (vintageMatchupOppArchChart) {
+    vintageMatchupOppArchChart.destroy();
+    vintageMatchupOppArchChart = null;
+  }
+  if (vintageMatchupOppSubarchChart) {
+    vintageMatchupOppSubarchChart.destroy();
+    vintageMatchupOppSubarchChart = null;
+  }
+}
+
+async function loadVintageFilterOptions() {
+  try {
+    const response = await fetch('/api/vintage/filter-options', {
+      method: 'GET',
+      headers: {
+        'X-Requested-By': 'MTGO-Tracker'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to load vintage filter options (${response.status})`);
+    }
+
+    vintageFilterOptions = await response.json();
+    populateVintageFilterDropdowns();
+  } catch (error) {
+    console.error('Error loading vintage filter options:', error);
+  }
+}
+
+function populateVintageFilterDropdowns() {
+  populateVintageDropdown('eventTypeFilter', vintageFilterOptions.EventType || [], 'All Event Types');
+  populateVintageDropdown('subarchetypeFilter', vintageFilterOptions.Subarchetype || [], 'All Subarchetypes');
+  populateVintageDropdown('playerFilter', vintageFilterOptions.Player || [], 'All Players');
+
+  const startDateInput = document.getElementById('startDate');
+  const endDateInput = document.getElementById('endDate');
+
+  if (startDateInput && vintageFilterOptions.Date1) {
+    startDateInput.value = vintageFilterOptions.Date1;
+  }
+  if (endDateInput && vintageFilterOptions.Date2) {
+    endDateInput.value = vintageFilterOptions.Date2;
+  }
+
+  syncArchetypeFilterState();
+  syncPlayerFilterState();
+}
+
+function populateVintageDropdown(elementId, optionsList, defaultText) {
+  const selectElement = document.getElementById(elementId);
+  if (!selectElement) return;
+
+  selectElement.innerHTML = '';
+
+  const defaultOption = document.createElement('option');
+  defaultOption.value = '';
+  defaultOption.textContent = defaultText;
+  selectElement.appendChild(defaultOption);
+
+  optionsList.forEach(optionValue => {
+    const option = document.createElement('option');
+    option.value = optionValue;
+    option.textContent = optionValue;
+    selectElement.appendChild(option);
+  });
+}
+
+function clearVintageFilters() {
+  const filtersForm = document.getElementById('vintageFilters');
+  if (filtersForm) {
+    filtersForm.reset();
+  }
+
+  const startDateInput = document.getElementById('startDate');
+  const endDateInput = document.getElementById('endDate');
+
+  if (startDateInput && vintageFilterOptions.Date1) {
+    startDateInput.value = vintageFilterOptions.Date1;
+  }
+  if (endDateInput && vintageFilterOptions.Date2) {
+    endDateInput.value = vintageFilterOptions.Date2;
+  }
+
+  // Hidden Event Explorer-only filter
+  selectedEventId = '';
+  const playerFilter = document.getElementById('playerFilter');
+  if (playerFilter) {
+    playerFilter.value = '';
+  }
+  syncArchetypeFilterState();
+  const dashboardType = document.getElementById('dashboardType')?.value;
+  if (dashboardType === 'event-explorer') {
+    generateVintageDashboard();
+  }
+}
+
+function syncPlayerFilterState() {
+  const dashboardType = document.getElementById('dashboardType')?.value || '';
+  const playerFilter = document.getElementById('playerFilter');
+  const playerFilterGroup = document.getElementById('playerFilterGroup');
+  if (!playerFilter || !playerFilterGroup) return;
+
+  const enabled = dashboardType === 'player-leaderboard';
+  playerFilter.disabled = !enabled;
+  if (!enabled) {
+    playerFilter.value = '';
+    playerFilterGroup.style.opacity = '0.5';
+    playerFilterGroup.style.pointerEvents = 'none';
+  } else {
+    playerFilterGroup.style.opacity = '1';
+    playerFilterGroup.style.pointerEvents = 'auto';
+  }
+}
+
+function syncArchetypeFilterState(forceResetToAll = false) {
+  const dashboardType = document.getElementById('dashboardType')?.value || '';
+  const archetypeFilter = document.getElementById('archetypeFilter');
+  if (!archetypeFilter) return;
+
+  const archetypeOptions = Array.isArray(vintageFilterOptions.Archetype) ? vintageFilterOptions.Archetype : [];
+  const currentValue = archetypeFilter.value || '';
+  const isMatchupGraph = dashboardType === 'matchup-graph';
+
+  archetypeFilter.innerHTML = '';
+
+  if (!isMatchupGraph) {
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'All Archetypes';
+    archetypeFilter.appendChild(defaultOption);
+  }
+
+  archetypeOptions.forEach(optionValue => {
+    const option = document.createElement('option');
+    option.value = optionValue;
+    option.textContent = optionValue;
+    archetypeFilter.appendChild(option);
+  });
+
+  const hasCurrentSelection = archetypeOptions.includes(currentValue);
+  if (isMatchupGraph) {
+    // Matchup Graph requires a concrete archetype selection.
+    if (hasCurrentSelection) {
+      archetypeFilter.value = currentValue;
+    } else {
+      archetypeFilter.value = archetypeOptions.length ? archetypeOptions[0] : '';
+    }
+  } else {
+    // Restore normal dropdown behavior with All Archetypes option.
+    archetypeFilter.value = forceResetToAll ? '' : (hasCurrentSelection ? currentValue : '');
+  }
+}
+
+function applyVintageFilters() {
+  generateVintageDashboard();
+}
+
+function getCurrentVintageFilterValues() {
+  return {
+    startDate: document.getElementById('startDate')?.value || '',
+    endDate: document.getElementById('endDate')?.value || '',
+    eventType: document.getElementById('eventTypeFilter')?.value || '',
+    archetype: document.getElementById('archetypeFilter')?.value || '',
+    subarchetype: document.getElementById('subarchetypeFilter')?.value || '',
+    player: (document.getElementById('playerFilter')?.disabled ? '' : (document.getElementById('playerFilter')?.value || '')),
+    eventId: selectedEventId || ''
+  };
+}
+
+function formatPercent(value) {
+  const numeric = Number(value || 0);
+  return `${(numeric * 100).toFixed(1)}%`;
+}
+
+function formatInteger(value) {
+  return Number(value || 0).toLocaleString();
+}
+
+function renderMetagameTable(tableTitle, rows) {
+  const headers = [
+    tableTitle,
+    'Players',
+    'Meta%',
+    'MWP Overall',
+    '95% CI',
+    'MWP w/o Mirrors',
+    'Total Matches',
+    'Total Matches w/o Mirrors'
+  ];
+
+  const bodyRows = (rows || []).map(row => `
+    <tr>
+      <td>${row.name || ''}</td>
+      <td>${formatInteger(row.players)}</td>
+      <td>${formatPercent(row.meta_pct)}</td>
+      <td>${formatPercent(row.mwp_overall)}</td>
+      <td>${formatPercent(row.ci_95)}</td>
+      <td>${formatPercent(row.mwp_no_mirrors)}</td>
+      <td>${formatInteger(row.total_matches)}</td>
+      <td>${formatInteger(row.total_matches_no_mirrors)}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="section-card section-thin-card">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-table"></i>
+          ${tableTitle}
+        </h2>
+      </div>
+      <div class="section-card-body section-thin-body table-body-no-padding">
+        <div class="table-wrapper">
+          <table class="modern-table">
+            <thead>
+              <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
+            </thead>
+            <tbody>
+              ${bodyRows || '<tr><td colspan="8">No data available for the selected filters.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderVintageMetagameDashboard(data) {
+  const dashboardResults = document.getElementById('dashboardResults');
+  const uniquePlayersValue = document.getElementById('uniquePlayersValue');
+  const vintageMetricsBody = document.getElementById('vintageMetricsBody');
+  const winnerValue = document.getElementById('winnerValue');
+  const winnerSubtitle = document.getElementById('winnerSubtitle');
+  const runnerUpValue = document.getElementById('runnerUpValue');
+  const runnerUpSubtitle = document.getElementById('runnerUpSubtitle');
+  if (!dashboardResults) return;
+  if (vintageEventExplorerScatterChart) {
+    vintageEventExplorerScatterChart.destroy();
+    vintageEventExplorerScatterChart = null;
+  }
+  if (vintageEventPlayerBarChart) {
+    vintageEventPlayerBarChart.destroy();
+    vintageEventPlayerBarChart = null;
+  }
+  if (vintageEventMwpBarChart) {
+    vintageEventMwpBarChart.destroy();
+    vintageEventMwpBarChart = null;
+  }
+  if (vintagePlayerDecksBarChart) {
+    vintagePlayerDecksBarChart.destroy();
+    vintagePlayerDecksBarChart = null;
+  }
+  destroyVintageMatchupGraphCharts();
+  if (vintageMetricsBody) {
+    vintageMetricsBody.classList.remove('event-explorer-mode');
+  }
+  if (uniquePlayersValue) {
+    uniquePlayersValue.textContent = formatInteger(data?.unique_players || 0);
+  }
+  if (winnerValue) winnerValue.textContent = '--';
+  if (winnerSubtitle) winnerSubtitle.textContent = 'Selected event';
+  if (runnerUpValue) runnerUpValue.textContent = '--';
+  if (runnerUpSubtitle) runnerUpSubtitle.textContent = 'Selected event';
+
+  const scatterCard = `
+    <div class="section-card section-thin-card">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-braille"></i>
+          Subarchetype Meta% vs MWP w/o Mirrors
+        </h2>
+      </div>
+      <div class="section-card-body section-thin-body">
+        <div class="chart-canvas-container" style="height: 380px;">
+          <canvas id="vintage-meta-scatter"></canvas>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const archetypeTable = renderMetagameTable('Archetype', data?.archetype_rows || []);
+  const subarchetypeTable = renderMetagameTable('Subarchetype', data?.subarchetype_rows || []);
+
+  dashboardResults.innerHTML = `${scatterCard}${archetypeTable}${subarchetypeTable}`;
+  renderVintageMetagameScatter(data?.subarchetype_rows || []);
+}
+
+function renderEventExplorerDashboard(data) {
+  const dashboardResults = document.getElementById('dashboardResults');
+  const uniquePlayersValue = document.getElementById('uniquePlayersValue');
+  const vintageMetricsBody = document.getElementById('vintageMetricsBody');
+  const winnerValue = document.getElementById('winnerValue');
+  const winnerSubtitle = document.getElementById('winnerSubtitle');
+  const runnerUpValue = document.getElementById('runnerUpValue');
+  const runnerUpSubtitle = document.getElementById('runnerUpSubtitle');
+  if (!dashboardResults) return;
+  if (vintagePlayerDecksBarChart) {
+    vintagePlayerDecksBarChart.destroy();
+    vintagePlayerDecksBarChart = null;
+  }
+  destroyVintageMatchupGraphCharts();
+  if (vintageMetricsBody) {
+    vintageMetricsBody.classList.add('event-explorer-mode');
+  }
+  if (uniquePlayersValue) {
+    uniquePlayersValue.textContent = formatInteger(data?.unique_players || 0);
+  }
+  if (winnerValue) winnerValue.textContent = data?.winner?.player || '--';
+  if (winnerSubtitle) winnerSubtitle.textContent = data?.winner?.deck || 'Selected event';
+  if (runnerUpValue) runnerUpValue.textContent = data?.runner_up?.player || '--';
+  if (runnerUpSubtitle) runnerUpSubtitle.textContent = data?.runner_up?.deck || 'Selected event';
+
+  const eventRows = data?.event_rows || [];
+  const standingsRows = data?.standings_rows || [];
+  const eventScatterRows = data?.event_scatter_rows || [];
+  const eventBarRows = data?.event_bar_rows || [];
+  const eventMatchupHeatmap = data?.event_matchup_heatmap || { subarchetypes: [], rows: [] };
+  selectedEventId = data?.selected_event_id || selectedEventId || '';
+
+  const leftTable = `
+    <div class="section-card section-thin-card">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-calendar-alt"></i>
+          Events
+        </h2>
+      </div>
+      <div class="section-card-body section-thin-body table-body-no-padding">
+        <div class="table-wrapper" style="height: 520px;">
+          <table class="modern-table">
+            <thead>
+              <tr>
+                <th>Event Id</th>
+                <th>Event Type</th>
+                <th>Date</th>
+                <th>Players</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${eventRows.map(row => `
+                <tr>
+                  <td>
+                    <a
+                      href="#"
+                      class="event-id-select${(selectedEventId && row.event_id === selectedEventId) ? ' active' : ''}"
+                      data-event-id="${row.event_id || ''}"
+                      style="color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;"
+                      onmouseover="this.style.textDecoration='underline'"
+                      onmouseout="this.style.textDecoration='none'"
+                    >
+                      ${row.event_id || ''}
+                    </a>
+                  </td>
+                  <td>${row.event_type || ''}</td>
+                  <td>${row.date || ''}</td>
+                  <td>${formatInteger(row.players)}</td>
+                </tr>
+              `).join('') || '<tr><td colspan="4">No event data for selected filters.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const rightTable = `
+    <div class="section-card section-thin-card">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-list-ol"></i>
+          Event Standings
+        </h2>
+      </div>
+      <div class="section-card-body section-thin-body table-body-no-padding">
+        <div class="table-wrapper" style="height: 520px;">
+          <table class="modern-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Player</th>
+                <th>Wins</th>
+                <th>Losses</th>
+                <th>Byes</th>
+                <th>Deck</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(selectedEventId ? standingsRows : []).map(row => `
+                <tr>
+                  <td>${row.rank ?? ''}</td>
+                  <td>${row.player || ''}</td>
+                  <td>${formatInteger(row.wins)}</td>
+                  <td>${formatInteger(row.losses)}</td>
+                  <td>${formatInteger(row.byes)}</td>
+                  <td>${row.deck || ''}</td>
+                </tr>
+              `).join('') || (selectedEventId
+                ? '<tr><td colspan="6">No standings found for selected event.</td></tr>'
+                : '<tr><td colspan="6">Select an Event Id from the left table to view standings.</td></tr>')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const chartsSection = selectedEventId ? `
+    <div class="dashboard-chart-grid" style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start;">
+      <div class="section-card section-thin-card" style="margin-bottom: 0;">
+        <div class="section-card-header">
+          <h2 class="section-card-title">
+            <i class="fas fa-braille"></i>
+            Subarchetype Player Count vs MWP w/o Mirrors
+          </h2>
+        </div>
+        <div class="section-card-body section-thin-body">
+          <div class="chart-canvas-container" style="height: 470px;">
+            <canvas id="event-explorer-subarch-scatter"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="event-explorer-right-stack" style="display: grid; grid-template-rows: auto auto; gap: 16px; align-content: start;">
+        <div class="section-card section-thin-card" style="margin-bottom: 0;">
+          <div class="section-card-header">
+            <h2 class="section-card-title">
+              <i class="fas fa-chart-bar"></i>
+              Player Count by Archetype
+            </h2>
+          </div>
+          <div class="section-card-body section-thin-body">
+            <div class="chart-canvas-container" style="height: 182px;">
+              <canvas id="event-explorer-arch-players-bar"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-card section-thin-card" style="margin-bottom: 0;">
+          <div class="section-card-header">
+            <h2 class="section-card-title">
+              <i class="fas fa-chart-bar"></i>
+              MWP w/o Mirrors by Archetype
+            </h2>
+          </div>
+          <div class="section-card-body section-thin-body">
+            <div class="chart-canvas-container" style="height: 182px;">
+              <canvas id="event-explorer-arch-mwp-bar"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  ` : '';
+  const heatmapSection = renderEventExplorerMatchupHeatmap(eventMatchupHeatmap);
+
+  dashboardResults.innerHTML = `
+    <div class="dashboard-table-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">${leftTable}${rightTable}</div>
+    ${chartsSection ? `<div style="margin-top: 16px;">${chartsSection}</div>` : ''}
+    <div style="margin-top: 16px;">${heatmapSection}</div>
+  `;
+
+  dashboardResults.querySelectorAll('.event-id-select').forEach(button => {
+    button.addEventListener('click', function(event) {
+      event.preventDefault();
+      selectedEventId = this.dataset.eventId || '';
+      generateVintageDashboard();
+    });
+  });
+
+  renderEventExplorerCharts(eventScatterRows, eventBarRows, selectedEventId);
+}
+
+function renderEventExplorerMatchupHeatmap(heatmapData) {
+  const subarchetypes = Array.isArray(heatmapData?.subarchetypes) ? heatmapData.subarchetypes : [];
+  const rowData = Array.isArray(heatmapData?.rows) ? heatmapData.rows : [];
+
+  if (!subarchetypes.length || !rowData.length) {
+    return `
+      <div class="section-card section-thin-card">
+        <div class="section-card-header">
+          <h2 class="section-card-title">
+            <i class="fas fa-th"></i>
+            Matchup Heatmap
+          </h2>
+        </div>
+        <div class="section-card-body section-thin-body">
+          <div style="padding: 8px 4px; color: var(--text-secondary);">
+            No matchup heatmap data for the current filters.
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const bodyRows = rowData.map(row => {
+    const leftLabel = row?.subarchetype || '';
+    const cells = Array.isArray(row?.cells) ? row.cells : [];
+    const cellHtml = cells.map(cell => {
+      const totalMatches = Number(cell?.total_matches || 0);
+      const matchWinPct = Number(cell?.match_win_pct);
+      const hasData = totalMatches > 0 && Number.isFinite(matchWinPct);
+      const pctText = hasData ? `${(matchWinPct * 100).toFixed(1)}%` : '--';
+      const bgStyle = hasData
+        ? `background-color: hsl(${Math.round(matchWinPct * 120)}, 68%, 84%);`
+        : 'background-color: #f3f4f6;';
+      return `
+        <td style="${bgStyle} text-align: center; white-space: nowrap;" title="Matches: ${totalMatches}">
+          ${pctText}
+        </td>
+      `;
+    }).join('');
+
+    return `
+      <tr>
+        <th style="position: sticky; left: 0; background: #fff; z-index: 2;">${leftLabel}</th>
+        ${cellHtml}
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="section-card section-thin-card">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-th"></i>
+          Matchup Heatmap
+        </h2>
+      </div>
+      <div class="section-card-body section-thin-body table-body-no-padding">
+        <div class="table-wrapper" style="max-height: 560px; overflow: auto;">
+          <table class="modern-table">
+            <thead>
+              <tr>
+                <th style="position: sticky; left: 0; top: 0; z-index: 4; background: #fff;">Subarchetype</th>
+                ${subarchetypes.map(value => `<th style="position: sticky; top: 0; z-index: 3; background: #fff;">${value}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${bodyRows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPlayerLeaderboardDashboard(data) {
+  const dashboardResults = document.getElementById('dashboardResults');
+  const uniquePlayersValue = document.getElementById('uniquePlayersValue');
+  const vintageMetricsBody = document.getElementById('vintageMetricsBody');
+  const winnerValue = document.getElementById('winnerValue');
+  const winnerSubtitle = document.getElementById('winnerSubtitle');
+  const runnerUpValue = document.getElementById('runnerUpValue');
+  const runnerUpSubtitle = document.getElementById('runnerUpSubtitle');
+  if (!dashboardResults) return;
+
+  if (vintageEventExplorerScatterChart) {
+    vintageEventExplorerScatterChart.destroy();
+    vintageEventExplorerScatterChart = null;
+  }
+  if (vintageEventPlayerBarChart) {
+    vintageEventPlayerBarChart.destroy();
+    vintageEventPlayerBarChart = null;
+  }
+  if (vintageEventMwpBarChart) {
+    vintageEventMwpBarChart.destroy();
+    vintageEventMwpBarChart = null;
+  }
+  if (vintagePlayerDecksBarChart) {
+    vintagePlayerDecksBarChart.destroy();
+    vintagePlayerDecksBarChart = null;
+  }
+  destroyVintageMatchupGraphCharts();
+
+  if (vintageMetricsBody) {
+    vintageMetricsBody.classList.remove('event-explorer-mode');
+  }
+  if (uniquePlayersValue) {
+    uniquePlayersValue.textContent = formatInteger(data?.unique_players || 0);
+  }
+  if (winnerValue) winnerValue.textContent = '--';
+  if (winnerSubtitle) winnerSubtitle.textContent = 'Selected event';
+  if (runnerUpValue) runnerUpValue.textContent = '--';
+  if (runnerUpSubtitle) runnerUpSubtitle.textContent = 'Selected event';
+
+  const rows = data?.leaderboard_rows || [];
+  const selectedPlayer = data?.selected_player || '';
+  const eventHistoryRows = data?.event_history_rows || [];
+  const decksPlayedRows = data?.decks_played_rows || [];
+  const headToHeadRows = data?.head_to_head_rows || [];
+  const leaderboardTable = `
+    <div class="section-card section-thin-card">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-trophy"></i>
+          Player Leaderboard
+        </h2>
+      </div>
+      <div class="section-card-body section-thin-body table-body-no-padding">
+        <div class="table-wrapper" style="height: 190px;">
+          <table class="modern-table">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Total Matches</th>
+                <th>Match Win%</th>
+                <th>Total Events</th>
+                <th>Finals Wins</th>
+                <th>Top 8s</th>
+                <th>Top 8 Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(row => `
+                <tr>
+                  <td>${row.player || ''}</td>
+                  <td>${formatInteger(row.total_matches)}</td>
+                  <td>${formatPercent(row.match_win_pct)}</td>
+                  <td>${formatInteger(row.total_events)}</td>
+                  <td>${formatInteger(row.finals_wins)}</td>
+                  <td>${formatInteger(row.top8s)}</td>
+                  <td>${formatPercent(row.top8_rate)}</td>
+                </tr>
+              `).join('') || '<tr><td colspan="7">No player data for selected filters.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const eventHistoryTable = `
+    <div class="section-card section-thin-card">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-history"></i>
+          Event History
+        </h2>
+      </div>
+      <div class="section-card-body section-thin-body table-body-no-padding">
+        <div class="table-wrapper" style="height: 560px;">
+          <table class="modern-table">
+            <thead>
+              <tr>
+                <th>Event Date</th>
+                <th>Event Type</th>
+                <th>Rank</th>
+                <th>Record</th>
+                <th>Deck</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${!selectedPlayer
+                ? '<tr><td colspan="5">Select a Player filter to view event history.</td></tr>'
+                : (eventHistoryRows.map(row => `
+                    <tr>
+                      <td>${row.event_date || ''}</td>
+                      <td>${row.event_type || ''}</td>
+                      <td>${row.rank ?? ''}</td>
+                      <td>${row.record || ''}</td>
+                      <td>${row.deck || ''}</td>
+                    </tr>
+                  `).join('') || '<tr><td colspan="5">No event history for the selected player and filters.</td></tr>')
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const decksPlayedCard = `
+    <div class="section-card section-thin-card">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-chart-bar"></i>
+          Decks Played
+        </h2>
+      </div>
+      <div class="section-card-body section-thin-body">
+        <div class="chart-canvas-container" style="height: 272px;">
+          <canvas id="player-decks-played-bar"></canvas>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const headToHeadTable = `
+    <div class="section-card section-thin-card">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-handshake"></i>
+          Head-to-Head
+        </h2>
+      </div>
+      <div class="section-card-body section-thin-body table-body-no-padding">
+        <div class="table-wrapper" style="height: 272px;">
+          <table class="modern-table">
+            <thead>
+              <tr>
+                <th>Opponent</th>
+                <th>Total Matches</th>
+                <th>Record</th>
+                <th>Match Win%</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${headToHeadRows.map(row => `
+                <tr>
+                  <td>${row.opponent || ''}</td>
+                  <td>${formatInteger(row.total_matches)}</td>
+                  <td>${row.record || '0-0'}</td>
+                  <td>${formatPercent(row.match_win_pct)}</td>
+                </tr>
+              `).join('') || '<tr><td colspan="4">No head-to-head data for the selected player and filters.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  dashboardResults.innerHTML = `
+    <div class="dashboard-table-grid" style="display: grid; grid-template-columns: 1fr; gap: 16px;">
+      ${leaderboardTable}
+      ${selectedPlayer ? `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start;">
+          ${eventHistoryTable}
+          <div style="display: grid; grid-template-rows: auto auto; gap: 16px; align-content: start;">
+            ${decksPlayedCard}
+            ${headToHeadTable}
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  renderPlayerDecksPlayedChart(decksPlayedRows, selectedPlayer);
+}
+
+function renderMatchupGraphDashboard(data) {
+  const dashboardResults = document.getElementById('dashboardResults');
+  const uniquePlayersValue = document.getElementById('uniquePlayersValue');
+  const vintageMetricsBody = document.getElementById('vintageMetricsBody');
+  const winnerValue = document.getElementById('winnerValue');
+  const winnerSubtitle = document.getElementById('winnerSubtitle');
+  const runnerUpValue = document.getElementById('runnerUpValue');
+  const runnerUpSubtitle = document.getElementById('runnerUpSubtitle');
+  if (!dashboardResults) return;
+
+  if (vintageEventExplorerScatterChart) {
+    vintageEventExplorerScatterChart.destroy();
+    vintageEventExplorerScatterChart = null;
+  }
+  if (vintageEventPlayerBarChart) {
+    vintageEventPlayerBarChart.destroy();
+    vintageEventPlayerBarChart = null;
+  }
+  if (vintageEventMwpBarChart) {
+    vintageEventMwpBarChart.destroy();
+    vintageEventMwpBarChart = null;
+  }
+  if (vintagePlayerDecksBarChart) {
+    vintagePlayerDecksBarChart.destroy();
+    vintagePlayerDecksBarChart = null;
+  }
+  if (vintageScatterChart) {
+    vintageScatterChart.destroy();
+    vintageScatterChart = null;
+  }
+  destroyVintageMatchupGraphCharts();
+
+  if (vintageMetricsBody) {
+    vintageMetricsBody.classList.remove('event-explorer-mode');
+  }
+  if (uniquePlayersValue) {
+    uniquePlayersValue.textContent = formatInteger(data?.unique_players || 0);
+  }
+  if (winnerValue) winnerValue.textContent = '--';
+  if (winnerSubtitle) winnerSubtitle.textContent = 'Selected event';
+  if (runnerUpValue) runnerUpValue.textContent = '--';
+  if (runnerUpSubtitle) runnerUpSubtitle.textContent = 'Selected event';
+
+  const opponentArchetypeRows = data?.opponent_archetype_rows || [];
+  const opponentSubarchetypeRows = data?.opponent_subarchetype_rows || [];
+  const selectedArchetype = document.getElementById('archetypeFilter')?.value || '';
+  const selectedSubarchetype = document.getElementById('subarchetypeFilter')?.value || '';
+  const titleSuffix = selectedSubarchetype
+    ? `${selectedArchetype} / ${selectedSubarchetype}`
+    : (selectedArchetype || 'Selected Archetype');
+
+  const chartCard = (title, canvasId, noDataMessage) => `
+    <div class="section-card section-thin-card">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-project-diagram"></i>
+          ${title}
+        </h2>
+      </div>
+      <div class="section-card-body section-thin-body">
+        <div class="chart-canvas-container" style="height: 400px;">
+          <canvas id="${canvasId}"></canvas>
+        </div>
+        <div id="${canvasId}-empty" style="display: none; margin-top: 8px; color: var(--text-secondary);">${noDataMessage}</div>
+      </div>
+    </div>
+  `;
+
+  dashboardResults.innerHTML = `
+    <div class="dashboard-table-grid" style="display: grid; grid-template-columns: 1fr; gap: 16px;">
+      ${chartCard(`vs Opposing Archetype (${titleSuffix})`, 'matchup-graph-opp-arch', 'No opposing archetype data for selected filters.')}
+      ${chartCard(`vs Opposing Subarchetype (${titleSuffix})`, 'matchup-graph-opp-subarch', 'No opposing subarchetype data for selected filters.')}
+    </div>
+  `;
+
+  renderMatchupGraphCharts(opponentArchetypeRows, opponentSubarchetypeRows);
+}
+
+function renderMatchupGraphCharts(opponentArchetypeRows, opponentSubarchetypeRows) {
+  ensureChartJsLoaded().then(() => {
+    vintageMatchupOppArchChart = renderVintageMatchupComboChart(
+      'matchup-graph-opp-arch',
+      opponentArchetypeRows || [],
+      'Opposing Archetype'
+    );
+    vintageMatchupOppSubarchChart = renderVintageMatchupComboChart(
+      'matchup-graph-opp-subarch',
+      opponentSubarchetypeRows || [],
+      'Opposing Subarchetype'
+    );
+  }).catch(error => {
+    console.error('Error rendering matchup graph charts:', error);
+  });
+}
+
+function renderVintageMatchupComboChart(canvasId, rows, xAxisTitle) {
+  const canvas = document.getElementById(canvasId);
+  const emptyState = document.getElementById(`${canvasId}-empty`);
+  if (!canvas) return null;
+
+  const sortedRows = (rows || []).slice().sort((a, b) => {
+    const matchDiff = Number(b.total_matches || 0) - Number(a.total_matches || 0);
+    if (matchDiff !== 0) return matchDiff;
+    return Number(b.match_win_pct || 0) - Number(a.match_win_pct || 0);
+  });
+
+  if (!sortedRows.length) {
+    canvas.style.display = 'none';
+    if (emptyState) emptyState.style.display = 'block';
+    return null;
+  }
+
+  canvas.style.display = 'block';
+  if (emptyState) emptyState.style.display = 'none';
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const labels = sortedRows.map(row => row.name || '');
+  const totalMatches = sortedRows.map(row => Number(row.total_matches || 0));
+  const matchWinPct = sortedRows.map(row => Number(row.match_win_pct || 0) * 100);
+  const ciHigh = sortedRows.map(row => Number(row.ci_high || 0) * 100);
+  const ciLow = sortedRows.map(row => Number(row.ci_low || 0) * 100);
+  const maxMatches = totalMatches.length ? Math.max(...totalMatches) : 0;
+
+  return new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Total Matches',
+          yAxisID: 'yMatches',
+          data: totalMatches,
+          backgroundColor: 'rgba(37, 99, 235, 0.72)',
+          borderColor: 'rgba(37, 99, 235, 1)',
+          borderWidth: 1
+        },
+        {
+          type: 'line',
+          label: 'Match Win%',
+          yAxisID: 'yPct',
+          data: matchWinPct,
+          borderColor: 'rgba(22, 163, 74, 1)',
+          backgroundColor: 'rgba(22, 163, 74, 0.15)',
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          tension: 0.2
+        },
+        {
+          type: 'line',
+          label: '95% CI High',
+          yAxisID: 'yPct',
+          data: ciHigh,
+          borderColor: 'rgba(22, 163, 74, 0.7)',
+          pointRadius: 0,
+          borderDash: [6, 4],
+          tension: 0.15
+        },
+        {
+          type: 'line',
+          label: '95% CI Low',
+          yAxisID: 'yPct',
+          data: ciLow,
+          borderColor: 'rgba(22, 163, 74, 0.7)',
+          pointRadius: 0,
+          borderDash: [6, 4],
+          tension: 0.15
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
+      plugins: {
+        legend: { display: true },
+        tooltip: {
+          callbacks: {
+            afterBody: function(items) {
+              const idx = items?.[0]?.dataIndex ?? 0;
+              const row = sortedRows[idx] || {};
+              return [
+                `Total Matches: ${formatInteger(row.total_matches || 0)}`,
+                `Match Win%: ${formatPercent(row.match_win_pct || 0)}`,
+                `95% CI High: ${formatPercent(row.ci_high || 0)}`,
+                `95% CI Low: ${formatPercent(row.ci_low || 0)}`
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: xAxisTitle },
+          ticks: { autoSkip: false }
+        },
+        yMatches: {
+          type: 'linear',
+          position: 'left',
+          beginAtZero: true,
+          max: Math.max(maxMatches + 2, 5),
+          title: { display: true, text: 'Total Matches' }
+        },
+        yPct: {
+          type: 'linear',
+          position: 'right',
+          beginAtZero: true,
+          min: 0,
+          max: 100,
+          grid: { drawOnChartArea: false },
+          title: { display: true, text: 'Match Win% / CI' },
+          ticks: {
+            callback: function(value) {
+              return `${Number(value).toFixed(0)}%`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function ensureChartJsLoaded() {
+  return new Promise((resolve, reject) => {
+    if (window.Chart) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Chart.js'));
+    document.head.appendChild(script);
+  });
+}
+
+function renderVintageMetagameScatter(subarchetypeRows) {
+  ensureChartJsLoaded().then(() => {
+    const canvas = document.getElementById('vintage-meta-scatter');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (vintageScatterChart) {
+      vintageScatterChart.destroy();
+      vintageScatterChart = null;
+    }
+
+    const points = (subarchetypeRows || []).map(row => ({
+      x: Number((row.meta_pct || 0) * 100),
+      y: Number((row.mwp_no_mirrors || 0) * 100),
+      label: row.name || '',
+      players: row.players || 0,
+      totalMatchesNoMirrors: row.total_matches_no_mirrors || 0
+    }));
+
+    const yValues = points.map(point => point.y).filter(value => Number.isFinite(value));
+    let yMin = 0;
+    let yMax = 100;
+    if (yValues.length > 0) {
+      const rawMin = Math.min(...yValues);
+      const rawMax = Math.max(...yValues);
+      const span = Math.max(rawMax - rawMin, 1);
+      const padding = Math.max(span * 0.08, 0.5);
+      yMin = Math.max(0, rawMin - padding);
+      yMax = Math.min(100, rawMax + padding);
+      if ((yMax - yMin) < 1) {
+        yMin = Math.max(0, yMin - 0.5);
+        yMax = Math.min(100, yMax + 0.5);
+      }
+    }
+
+    const pointLabelPlugin = {
+      id: 'pointLabelPlugin',
+      afterDatasetsDraw(chart) {
+        const dataset = chart.data.datasets[0];
+        const meta = chart.getDatasetMeta(0);
+        const ctx = chart.ctx;
+
+        ctx.save();
+        ctx.font = '11px Arial';
+        ctx.fillStyle = '#111';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+
+        const placementCounts = new Map();
+        const chartArea = chart.chartArea || {};
+
+        meta.data.forEach((pointElement, index) => {
+          const raw = dataset.data[index] || {};
+          const label = raw.label || '';
+          if (!label) return;
+          const { x, y } = pointElement.getProps(['x', 'y'], true);
+          const bucketKey = `${Math.round(x / 6)}|${Math.round(y / 6)}`;
+          const placementIndex = placementCounts.get(bucketKey) || 0;
+          placementCounts.set(bucketKey, placementIndex + 1);
+
+          // Stagger labels for points sharing nearby coordinates.
+          let dx = 8 + ((placementIndex % 3) * 8);
+          let dy = -8 - (Math.floor(placementIndex / 3) * 10);
+
+          // Keep labels inside plot area by flipping/raising near edges.
+          if (chartArea.right && x > (chartArea.right - 70)) {
+            dx = -8 - ((placementIndex % 3) * 8);
+          }
+          if (chartArea.left && x < (chartArea.left + 20)) {
+            dx = 8 + ((placementIndex % 3) * 8);
+          }
+          if (chartArea.bottom && y > (chartArea.bottom - 18)) {
+            dy = -12 - (placementIndex * 10);
+          }
+          if (chartArea.top && (y + dy) < (chartArea.top + 10)) {
+            dy = 10 + ((placementIndex % 3) * 8);
+          }
+
+          ctx.textAlign = dx < 0 ? 'right' : 'left';
+          ctx.fillText(label, x + dx, y + dy);
+        });
+
+        ctx.restore();
+      }
+    };
+
+    vintageScatterChart = new Chart(ctx, {
+      plugins: [pointLabelPlugin],
+      type: 'scatter',
+      data: {
+        datasets: [
+          {
+            label: 'Subarchetypes',
+            data: points,
+            backgroundColor: 'rgba(0, 57, 166, 0.65)',
+            borderColor: 'rgba(0, 57, 166, 1)',
+            pointRadius: 5,
+            pointHoverRadius: 7
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: {
+          padding: {
+            top: 20,
+            right: 60,
+            bottom: 10,
+            left: 10
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const raw = context.raw || {};
+                return [
+                  raw.label || '',
+                  `Meta %: ${raw.x.toFixed(1)}%`,
+                  `MWP w/o Mirrors: ${raw.y.toFixed(1)}%`,
+                  `Players: ${raw.players}`,
+                  `Total Matches w/o Mirrors: ${raw.totalMatchesNoMirrors}`
+                ];
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            title: {
+              display: true,
+              text: 'Meta %'
+            }
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'MWP w/o Mirrors %'
+            },
+            min: yMin,
+            max: yMax
+          }
+        }
+      }
+    });
+  }).catch(error => {
+    console.error('Error rendering vintage scatter chart:', error);
+  });
+}
+
+function renderEventExplorerCharts(scatterRows, barRows, selectedEventIdValue) {
+  if (!selectedEventIdValue) {
+    if (vintageEventExplorerScatterChart) {
+      vintageEventExplorerScatterChart.destroy();
+      vintageEventExplorerScatterChart = null;
+    }
+    if (vintageEventPlayerBarChart) {
+      vintageEventPlayerBarChart.destroy();
+      vintageEventPlayerBarChart = null;
+    }
+    if (vintageEventMwpBarChart) {
+      vintageEventMwpBarChart.destroy();
+      vintageEventMwpBarChart = null;
+    }
+    return;
+  }
+
+  ensureChartJsLoaded().then(() => {
+    const scatterCanvas = document.getElementById('event-explorer-subarch-scatter');
+    const playersBarCanvas = document.getElementById('event-explorer-arch-players-bar');
+    const mwpBarCanvas = document.getElementById('event-explorer-arch-mwp-bar');
+    if (!scatterCanvas || !playersBarCanvas || !mwpBarCanvas) return;
+    const scatterCtx = scatterCanvas.getContext('2d');
+    const playersBarCtx = playersBarCanvas.getContext('2d');
+    const mwpBarCtx = mwpBarCanvas.getContext('2d');
+    if (!scatterCtx || !playersBarCtx || !mwpBarCtx) return;
+
+    if (vintageEventExplorerScatterChart) {
+      vintageEventExplorerScatterChart.destroy();
+      vintageEventExplorerScatterChart = null;
+    }
+    if (vintageEventPlayerBarChart) {
+      vintageEventPlayerBarChart.destroy();
+      vintageEventPlayerBarChart = null;
+    }
+    if (vintageEventMwpBarChart) {
+      vintageEventMwpBarChart.destroy();
+      vintageEventMwpBarChart = null;
+    }
+
+    const points = (scatterRows || []).map(row => ({
+      x: Number(row.players || 0),
+      y: Number((row.mwp_no_mirrors || 0) * 100),
+      label: row.name || '',
+      totalMatchesNoMirrors: row.total_matches_no_mirrors || 0
+    }));
+
+    const sortedBarRows = [...(barRows || [])].sort((a, b) => (Number(b.players || 0) - Number(a.players || 0)));
+    const labels = sortedBarRows.map(row => row.name || '');
+    const playersData = sortedBarRows.map(row => Number(row.players || 0));
+    const mwpData = sortedBarRows.map(row => Number((row.mwp_no_mirrors || 0) * 100));
+
+    const yValues = points.map(point => point.y).filter(value => Number.isFinite(value));
+    const xValues = points.map(point => point.x).filter(value => Number.isFinite(value));
+    let yMin = 0;
+    let yMax = 100;
+    let xMax = 10;
+    if (yValues.length > 0) {
+      const rawMin = Math.min(...yValues);
+      const rawMax = Math.max(...yValues);
+      const span = Math.max(rawMax - rawMin, 1);
+      const padding = Math.max(span * 0.08, 0.5);
+      yMin = Math.max(0, rawMin - padding);
+      yMax = Math.min(100, rawMax + padding);
+    }
+    if (xValues.length > 0) {
+      const rawXMax = Math.max(...xValues);
+      const xPadding = Math.max(rawXMax * 0.12, 1);
+      xMax = rawXMax + xPadding;
+    }
+
+    const pointLabelPlugin = {
+      id: 'eventExplorerPointLabelPlugin',
+      afterDatasetsDraw(chart) {
+        const dataset = chart.data.datasets[0];
+        const meta = chart.getDatasetMeta(0);
+        const ctx = chart.ctx;
+
+        ctx.save();
+        ctx.font = '11px Arial';
+        ctx.fillStyle = '#111';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+
+        const placementCounts = new Map();
+        const chartArea = chart.chartArea || {};
+
+        meta.data.forEach((pointElement, index) => {
+          const raw = dataset.data[index] || {};
+          const label = raw.label || '';
+          if (!label) return;
+          const { x, y } = pointElement.getProps(['x', 'y'], true);
+          const bucketKey = `${Math.round(x / 6)}|${Math.round(y / 6)}`;
+          const placementIndex = placementCounts.get(bucketKey) || 0;
+          placementCounts.set(bucketKey, placementIndex + 1);
+
+          let dx = 8 + ((placementIndex % 3) * 8);
+          let dy = -8 - (Math.floor(placementIndex / 3) * 10);
+
+          if (chartArea.right && x > (chartArea.right - 70)) {
+            dx = -8 - ((placementIndex % 3) * 8);
+          }
+          if (chartArea.left && x < (chartArea.left + 20)) {
+            dx = 8 + ((placementIndex % 3) * 8);
+          }
+          if (chartArea.bottom && y > (chartArea.bottom - 18)) {
+            dy = -12 - (placementIndex * 10);
+          }
+          if (chartArea.top && (y + dy) < (chartArea.top + 10)) {
+            dy = 10 + ((placementIndex % 3) * 8);
+          }
+
+          ctx.textAlign = dx < 0 ? 'right' : 'left';
+          ctx.fillText(label, x + dx, y + dy);
+        });
+
+        ctx.restore();
+      }
+    };
+
+    vintageEventExplorerScatterChart = new Chart(scatterCtx, {
+      plugins: [pointLabelPlugin],
+      type: 'scatter',
+      data: {
+        datasets: [
+          {
+            label: 'Subarchetypes',
+            data: points,
+            backgroundColor: 'rgba(15, 23, 42, 0.6)',
+            borderColor: 'rgba(15, 23, 42, 1)',
+            pointRadius: 5,
+            pointHoverRadius: 7
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: {
+          padding: {
+            right: 70
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const raw = context.raw || {};
+                return [
+                  raw.label || '',
+                  `Player Count: ${raw.x}`,
+                  `MWP w/o Mirrors: ${raw.y.toFixed(1)}%`,
+                  `Total Matches w/o Mirrors: ${raw.totalMatchesNoMirrors}`
+                ];
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            title: { display: true, text: 'Player Count' },
+            beginAtZero: true,
+            max: xMax
+          },
+          y: {
+            title: { display: true, text: 'MWP w/o Mirrors %' },
+            min: yMin,
+            max: yMax
+          }
+        }
+      }
+    });
+
+    vintageEventPlayerBarChart = new Chart(playersBarCtx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Player Count',
+            data: playersData,
+            backgroundColor: 'rgba(59, 130, 246, 0.75)',
+            borderColor: 'rgba(59, 130, 246, 1)',
+            borderWidth: 1
+          }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: {
+            beginAtZero: true
+          },
+          y: {
+            ticks: { autoSkip: false }
+          }
+        }
+      }
+    });
+
+    const mwpValues = mwpData.filter(value => Number.isFinite(value));
+    let mwpMin = 0;
+    let mwpMax = 100;
+    if (mwpValues.length > 0) {
+      const rawMin = Math.min(...mwpValues);
+      const rawMax = Math.max(...mwpValues);
+      const span = Math.max(rawMax - rawMin, 1);
+      const padding = Math.max(span * 0.08, 1);
+      mwpMin = Math.max(0, rawMin - padding);
+      mwpMax = Math.min(100, rawMax + padding);
+      if ((mwpMax - mwpMin) < 5) {
+        mwpMin = Math.max(0, mwpMin - 2.5);
+        mwpMax = Math.min(100, mwpMax + 2.5);
+      }
+    }
+
+    vintageEventMwpBarChart = new Chart(mwpBarCtx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'MWP w/o Mirrors %',
+            data: mwpData,
+            backgroundColor: 'rgba(16, 185, 129, 0.75)',
+            borderColor: 'rgba(16, 185, 129, 1)',
+            borderWidth: 1
+          }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: {
+            beginAtZero: false,
+            min: mwpMin,
+            max: mwpMax
+          },
+          y: {
+            ticks: { autoSkip: false }
+          }
+        }
+      }
+    });
+  }).catch(error => {
+    console.error('Error rendering event explorer charts:', error);
+  });
+}
+
+function renderPlayerDecksPlayedChart(decksPlayedRows, selectedPlayer) {
+  if (!selectedPlayer) return;
+
+  ensureChartJsLoaded().then(() => {
+    const canvas = document.getElementById('player-decks-played-bar');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (vintagePlayerDecksBarChart) {
+      vintagePlayerDecksBarChart.destroy();
+      vintagePlayerDecksBarChart = null;
+    }
+
+    const rows = (decksPlayedRows || []).slice().sort((a, b) => {
+      const matchDiff = Number(b.total_matches || 0) - Number(a.total_matches || 0);
+      if (matchDiff !== 0) return matchDiff;
+      return Number(b.match_win_pct || 0) - Number(a.match_win_pct || 0);
+    });
+
+    const labels = rows.map(row => row.subarchetype || '');
+    const matches = rows.map(row => Number(row.total_matches || 0));
+    const winPcts = rows.map(row => Number(row.match_win_pct || 0));
+    const maxValue = matches.length ? Math.max(...matches) : 0;
+    const xPadding = Math.max(maxValue * 0.25, 2);
+
+    const barLabelPlugin = {
+      id: 'playerDecksBarLabelPlugin',
+      afterDatasetsDraw(chart) {
+        const datasetMeta = chart.getDatasetMeta(0);
+        const localCtx = chart.ctx;
+        localCtx.save();
+        localCtx.font = '11px Arial';
+        localCtx.fillStyle = '#111';
+        localCtx.textAlign = 'left';
+        localCtx.textBaseline = 'middle';
+
+        datasetMeta.data.forEach((bar, index) => {
+          const matchesValue = Number(matches[index] || 0);
+          const winPctValue = Number(winPcts[index] || 0);
+          const labelText = `${formatInteger(matchesValue)} - ${(winPctValue * 100).toFixed(1)}%`;
+          localCtx.fillText(labelText, bar.x + 8, bar.y);
+        });
+
+        localCtx.restore();
+      }
+    };
+
+    vintagePlayerDecksBarChart = new Chart(ctx, {
+      type: 'bar',
+      plugins: [barLabelPlugin],
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Total Matches',
+            data: matches,
+            backgroundColor: 'rgba(37, 99, 235, 0.72)',
+            borderColor: 'rgba(37, 99, 235, 1)',
+            borderWidth: 1
+          }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const idx = context.dataIndex;
+                const m = Number(matches[idx] || 0);
+                const pct = Number(winPcts[idx] || 0);
+                return `Matches: ${formatInteger(m)} | Match Win%: ${(pct * 100).toFixed(1)}%`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            max: maxValue + xPadding,
+            title: { display: true, text: 'Total Matches Played' }
+          },
+          y: {
+            ticks: { autoSkip: false }
+          }
+        }
+      }
+    });
+  }).catch(error => {
+    console.error('Error rendering player decks played chart:', error);
+  });
+}
+
+async function generateVintageDashboard() {
+  const dashboardType = document.getElementById('dashboardType')?.value;
+  const filters = getCurrentVintageFilterValues();
+  const loadingState = document.getElementById('loadingState');
+  const dashboardResults = document.getElementById('dashboardResults');
+
+  try {
+    if (loadingState) {
+      loadingState.style.display = 'block';
+    }
+    if (dashboardResults) {
+      dashboardResults.style.display = 'none';
+    }
+
+    const response = await fetch('/api/vintage/dashboard/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-By': 'MTGO-Tracker'
+      },
+      body: JSON.stringify({
+        dashboard_type: dashboardType,
+        filters
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || `Failed to generate dashboard (${response.status})`);
+    }
+    if (dashboardType === 'metagame-breakdown') {
+      renderVintageMetagameDashboard(result.data);
+    } else if (dashboardType === 'event-explorer') {
+      renderEventExplorerDashboard(result.data);
+    } else if (dashboardType === 'player-leaderboard') {
+      renderPlayerLeaderboardDashboard(result.data);
+    } else if (dashboardType === 'matchup-graph') {
+      renderMatchupGraphDashboard(result.data);
+    } else {
+      alert('This dashboard type is not implemented yet.');
+    }
+  } catch (error) {
+    console.error('Error generating vintage dashboard:', error);
+  } finally {
+    if (loadingState) {
+      loadingState.style.display = 'none';
+    }
+    if (dashboardResults) {
+      dashboardResults.style.display = 'block';
+    }
+  }
+}
+</script>
 {% endblock %}

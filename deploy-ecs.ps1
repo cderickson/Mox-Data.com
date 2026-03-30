@@ -14,6 +14,9 @@ param(
   [Parameter(Mandatory=$true)] [string]$ImageTag,
   [string]$WebBaseTaskDefinition = "",
   [string]$WorkerBaseTaskDefinition = "",
+  [string]$MigrationContainerName = "web",
+  [string]$MigrationCommand = "python -m flask db upgrade",
+  [switch]$SkipMigration,
   [string]$Region = "us-west-2",
   [string]$AccountId = "968362146563",
   [string]$Repository = "mox-data"
@@ -95,20 +98,121 @@ function Write-JsonFileNoBom {
   [System.IO.File]::WriteAllText($Path, $Json, $utf8NoBom)
 }
 
+function Invoke-EcsMigrationTask {
+  param(
+    [Parameter(Mandatory=$true)] [string]$Cluster,
+    [Parameter(Mandatory=$true)] [string]$Region,
+    [Parameter(Mandatory=$true)] [string]$TaskDefinitionArn,
+    [Parameter(Mandatory=$true)] [string]$ContainerName,
+    [Parameter(Mandatory=$true)] [string]$CommandString,
+    [Parameter(Mandatory=$true)] $WebServiceObject
+  )
+
+  $commandParts = @($CommandString -split "\s+") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+  if ($commandParts.Count -eq 0) {
+    throw "Migration command is empty."
+  }
+
+  $overridesJson = @{
+    containerOverrides = @(
+      @{
+        name = $ContainerName
+        command = $commandParts
+      }
+    )
+  } | ConvertTo-Json -Compress -Depth 20
+
+  $runTaskArgs = @(
+    "ecs", "run-task",
+    "--region", $Region,
+    "--cluster", $Cluster,
+    "--task-definition", $TaskDefinitionArn,
+    "--overrides", $overridesJson,
+    "--query", "tasks[0].taskArn",
+    "--output", "text"
+  )
+
+  $awsvpc = $WebServiceObject.networkConfiguration.awsvpcConfiguration
+  if ($null -ne $awsvpc) {
+    $networkConfigurationJson = @{
+      awsvpcConfiguration = @{
+        subnets = @($awsvpc.subnets)
+        securityGroups = @($awsvpc.securityGroups)
+        assignPublicIp = $awsvpc.assignPublicIp
+      }
+    } | ConvertTo-Json -Compress -Depth 10
+    $runTaskArgs += @("--network-configuration", $networkConfigurationJson)
+  }
+
+  $capacityProviderStrategy = @($WebServiceObject.capacityProviderStrategy)
+  if ($capacityProviderStrategy.Count -gt 0) {
+    $capacityProviderJson = $capacityProviderStrategy | ConvertTo-Json -Compress -Depth 10
+    $runTaskArgs += @("--capacity-provider-strategy", $capacityProviderJson)
+  } elseif (-not [string]::IsNullOrWhiteSpace($WebServiceObject.launchType)) {
+    $runTaskArgs += @("--launch-type", $WebServiceObject.launchType)
+  }
+
+  Write-Host "Starting migration task using task definition: $TaskDefinitionArn" -ForegroundColor Yellow
+  $taskArn = & aws @runTaskArgs
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($taskArn) -or $taskArn -eq "None") {
+    throw "Failed to start ECS migration task."
+  }
+  Write-Host "Migration task started: $taskArn"
+
+  & aws ecs wait tasks-stopped `
+    --region $Region `
+    --cluster $Cluster `
+    --tasks $taskArn
+  if ($LASTEXITCODE -ne 0) {
+    throw "Migration task did not reach STOPPED state successfully."
+  }
+
+  $taskRaw = aws ecs describe-tasks `
+    --region $Region `
+    --cluster $Cluster `
+    --tasks $taskArn `
+    --query "tasks[0]" `
+    --output json
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to describe migration task: $taskArn"
+  }
+
+  $taskObj = $taskRaw | ConvertFrom-Json
+  $migrationContainer = @($taskObj.containers | Where-Object { $_.name -eq $ContainerName }) | Select-Object -First 1
+  if ($null -eq $migrationContainer) {
+    throw "Migration container '$ContainerName' was not found in task '$taskArn'."
+  }
+
+  $exitCode = $migrationContainer.exitCode
+  if ($null -eq $exitCode -or [int]$exitCode -ne 0) {
+    $reason = $migrationContainer.reason
+    $stoppedReason = $taskObj.stoppedReason
+    throw "Migration failed (exitCode=$exitCode). Container reason='$reason'. Task stoppedReason='$stoppedReason'."
+  }
+
+  Write-Host "Migration task completed successfully." -ForegroundColor Green
+}
+
 Test-RequiredCommand "aws"
 
 $imageUri = "$AccountId.dkr.ecr.$Region.amazonaws.com/$Repository`:$ImageTag"
 Write-Host "Using image: $imageUri" -ForegroundColor Cyan
 
-# Resolve current task definition ARNs from services.
-$webServiceTdArn = aws ecs describe-services `
+# Resolve web service details and current task definition ARN.
+$webServiceRaw = aws ecs describe-services `
   --region $Region `
   --cluster $Cluster `
   --services $WebService `
-  --query "services[0].taskDefinition" `
-  --output text
+  --query "services[0]" `
+  --output json
 if ($LASTEXITCODE -ne 0) {
-  throw "Failed to resolve current web service task definition."
+  throw "Failed to describe web service '$WebService'."
+}
+
+$webServiceObj = $webServiceRaw | ConvertFrom-Json
+$webServiceTdArn = $webServiceObj.taskDefinition
+if ([string]::IsNullOrWhiteSpace($webServiceTdArn) -or $webServiceTdArn -eq "None") {
+  throw "Could not resolve task definition for web service '$WebService'."
 }
 
 $workerServiceTdArn = aws ecs describe-services `
@@ -121,9 +225,6 @@ if ($LASTEXITCODE -ne 0) {
   throw "Failed to resolve current worker service task definition."
 }
 
-if ([string]::IsNullOrWhiteSpace($webServiceTdArn) -or $webServiceTdArn -eq "None") {
-  throw "Could not resolve task definition for web service '$WebService'."
-}
 if ([string]::IsNullOrWhiteSpace($workerServiceTdArn) -or $workerServiceTdArn -eq "None") {
   throw "Could not resolve task definition for worker service '$WorkerService'."
 }
@@ -196,6 +297,18 @@ try {
   }
 
   Write-Host "Registered new worker task definition: $newWorkerTdArn" -ForegroundColor Green
+
+  if (-not $SkipMigration) {
+    Invoke-EcsMigrationTask `
+      -Cluster $Cluster `
+      -Region $Region `
+      -TaskDefinitionArn $newWebTdArn `
+      -ContainerName $MigrationContainerName `
+      -CommandString $MigrationCommand `
+      -WebServiceObject $webServiceObj
+  } else {
+    Write-Host "Skipping migration step because -SkipMigration was provided." -ForegroundColor Yellow
+  }
 
   # Update services.
   aws ecs update-service `
