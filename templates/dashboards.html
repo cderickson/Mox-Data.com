@@ -25,6 +25,14 @@
           <div class="section-card-body section-thin-body">
         <form id="dashboardFilters">
           <div class="filter-group">
+            <label class="filter-label">Date Range</label>
+            <div class="date-inputs">
+              <input type="date" class="filter-select" id="startDate" name="startDate" placeholder="Start Date">
+              <input type="date" class="filter-select" id="endDate" name="endDate" placeholder="End Date">
+            </div>
+          </div>
+
+          <div class="filter-group">
             <label class="filter-label" for="cardFilter">Card</label>
             <select class="filter-select" id="cardFilter" name="card">
               <option value="">All Cards</option>
@@ -57,14 +65,6 @@
             <select class="filter-select" id="oppDeckFilter" name="oppDeck">
               <option value="">All Opp. Decks</option>
             </select>
-          </div>
-          
-          <div class="filter-group">
-            <label class="filter-label">Date Range</label>
-            <div class="date-inputs">
-              <input type="date" class="filter-select" id="startDate" name="startDate" placeholder="Start Date">
-              <input type="date" class="filter-select" id="endDate" name="endDate" placeholder="End Date">
-            </div>
           </div>
           
           <div class="filters-actions">

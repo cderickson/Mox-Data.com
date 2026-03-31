@@ -3559,9 +3559,15 @@ def faq():
 
 @views.route('/vintage-data', methods=['GET'])
 def vintage():
-	if not _is_admin_authorized():
-		return jsonify({'error': 'Forbidden'}), 403
 	return render_template('vintage.html', user=current_user)
+
+@views.route('/vintage-data/api-documentation', methods=['GET'])
+def vintage_api_documentation():
+	return render_template('vintage-api-documentation.html', user=current_user)
+
+@views.route('/vintage-data/data-dictionary', methods=['GET'])
+def vintage_data_dictionary():
+	return render_template('vintage-datadict.html', user=current_user)
 
 VINTAGE_FORCE_UPPER_TERMS = {'BUG', 'DRS', 'PO', 'NA', 'UB'}
 
@@ -3593,6 +3599,7 @@ def vintage_filter_options():
 	filter_options_dict = {
 		'Date1': '',
 		'Date2': '',
+		'EventId': [],
 		'EventType': [],
 		'Archetype': [],
 		'Subarchetype': [],
@@ -3617,6 +3624,16 @@ def vintage_filter_options():
 		if date_row:
 			filter_options_dict['Date1'] = _normalize_date_value(date_row[0])
 			filter_options_dict['Date2'] = _normalize_date_value(date_row[1])
+
+		event_id_rows = db.session.execute(text(
+			'SELECT DISTINCT e."EVENT_ID" '
+			'FROM "[vapi].EVENTS" e '
+			'WHERE e."EVENT_ID" IS NOT NULL '
+			'ORDER BY e."EVENT_ID" DESC'
+		)).all()
+		filter_options_dict['EventId'] = [
+			str(row[0]).strip() for row in event_id_rows if row and row[0] is not None and str(row[0]).strip()
+		]
 
 		event_type_rows = db.session.execute(text(
 			'SELECT DISTINCT vet."EVENT_TYPE" '
@@ -3670,6 +3687,137 @@ def vintage_filter_options():
 		return jsonify({'error': 'Failed to load vintage filter options'}), 500
 
 	return jsonify(filter_options_dict)
+
+@views.route('/api/vintage/filtered-options', methods=['POST'])
+def vintage_filtered_options():
+	if not _is_admin_authorized():
+		return jsonify({'error': 'Forbidden'}), 403
+
+	payload = request.get_json() or {}
+	filters = payload.get('filters') or {}
+	filter_options_dict = {
+		'Date1': '',
+		'Date2': '',
+		'EventId': [],
+		'EventType': [],
+		'Archetype': [],
+		'Subarchetype': [],
+		'Player': [],
+	}
+
+	try:
+		event_id = str(filters.get('eventId') or '').strip()
+		event_type = str(filters.get('eventType') or '').strip()
+		archetype = str(filters.get('archetype') or '').strip()
+		subarchetype = str(filters.get('subarchetype') or '').strip()
+		player_filter = str(filters.get('player') or '').strip()
+
+		sql_filters = []
+		params = {}
+		if event_id:
+			sql_filters.append('CAST(m."EVENT_ID" AS VARCHAR) = :event_id')
+			params['event_id'] = event_id
+		if event_type:
+			sql_filters.append('UPPER(vet."EVENT_TYPE") = :event_type')
+			params['event_type'] = event_type.upper()
+		if archetype:
+			sql_filters.append('UPPER(vd1."ARCHETYPE") = :archetype')
+			params['archetype'] = archetype.upper()
+		if subarchetype:
+			sql_filters.append('UPPER(vd1."SUBARCHETYPE") = :subarchetype')
+			params['subarchetype'] = subarchetype.upper()
+		if player_filter:
+			sql_filters.append('UPPER(m."P1") = :player_filter')
+			params['player_filter'] = player_filter.upper()
+
+		where_clause = f'WHERE {" AND ".join(sql_filters)}' if sql_filters else ''
+		filtered_rows_sql = text(
+			'SELECT '
+			'  CAST(m."EVENT_ID" AS VARCHAR) AS event_id, '
+			'  e."EVENT_DATE" AS event_date, '
+			'  vet."EVENT_TYPE" AS event_type, '
+			'  vd1."ARCHETYPE" AS archetype, '
+			'  vd1."SUBARCHETYPE" AS subarchetype, '
+			'  m."P1" AS player '
+			'FROM "[vapi].MATCHES" m '
+			'LEFT JOIN "[vapi].EVENTS" e ON m."EVENT_ID" = e."EVENT_ID" '
+			'LEFT JOIN "[vapi].VALID_EVENT_TYPES" vet ON e."EVENT_TYPE_ID" = vet."EVENT_TYPE_ID" '
+			'LEFT JOIN "[vapi].VALID_DECKS" vd1 ON m."P1_DECK_ID" = vd1."DECK_ID" '
+			f'{where_clause}'
+		)
+		filtered_rows = [dict(r._mapping) for r in db.session.execute(filtered_rows_sql, params).all()]
+
+		event_ids = {
+			str(row.get('event_id') or '').strip()
+			for row in filtered_rows
+			if str(row.get('event_id') or '').strip()
+		}
+		filter_options_dict['EventId'] = sorted(
+			event_ids,
+			key=lambda value: (0, int(value)) if value.isdigit() else (1, value.lower()),
+			reverse=True
+		)
+
+		event_types = {
+			_format_vintage_label_value(row.get('event_type'))
+			for row in filtered_rows
+			if row.get('event_type')
+		}
+		filter_options_dict['EventType'] = sorted(
+			(value for value in event_types if value),
+			key=lambda value: value.lower()
+		)
+
+		archetypes = {
+			_format_vintage_label_value(row.get('archetype'))
+			for row in filtered_rows
+			if row.get('archetype') and str(row.get('archetype')).strip().upper() != 'NA'
+		}
+		filter_options_dict['Archetype'] = sorted(
+			(value for value in archetypes if value),
+			key=lambda value: value.lower()
+		)
+
+		subarchetypes = {
+			_format_vintage_label_value(row.get('subarchetype'))
+			for row in filtered_rows
+			if row.get('subarchetype') and str(row.get('subarchetype')).strip().upper() not in {'NA', 'NO SHOW'}
+		}
+		filter_options_dict['Subarchetype'] = sorted(
+			(value for value in subarchetypes if value),
+			key=lambda value: value.lower()
+		)
+
+		players = {
+			str(row.get('player') or '').strip()
+			for row in filtered_rows
+			if str(row.get('player') or '').strip()
+		}
+		filter_options_dict['Player'] = sorted(players, key=lambda value: value.lower())
+
+		date_row = db.session.execute(text(
+			'SELECT MIN("EVENT_DATE") AS min_event_date, MAX("EVENT_DATE") AS max_event_date '
+			'FROM "[vapi].EVENTS"'
+		)).first()
+		if date_row:
+			min_date = date_row[0]
+			max_date = date_row[1]
+			filter_options_dict['Date1'] = (
+				min_date.strftime('%Y-%m-%d')
+				if isinstance(min_date, (datetime.date, datetime.datetime))
+				else str(min_date)[:10] if min_date is not None else ''
+			)
+			filter_options_dict['Date2'] = (
+				max_date.strftime('%Y-%m-%d')
+				if isinstance(max_date, (datetime.date, datetime.datetime))
+				else str(max_date)[:10] if max_date is not None else ''
+			)
+
+		return jsonify(filter_options_dict)
+
+	except Exception as error:
+		debug_log(f'Error loading vintage filtered options: {error}')
+		return jsonify({'error': 'Failed to load vintage filtered options'}), 500
 
 def _compute_vintage_metagame_table(rows, key_field, opp_key_field, excluded_values=None):
 	grouped = {}
@@ -3739,6 +3887,7 @@ def _compute_vintage_metagame_table(rows, key_field, opp_key_field, excluded_val
 		no_mirror_wins = metrics['no_mirror_wins']
 		no_mirror_losses = metrics['no_mirror_losses']
 		mwp_no_mirrors = (no_mirror_wins / (no_mirror_wins + no_mirror_losses)) if (no_mirror_wins + no_mirror_losses) > 0 else 0.0
+		ci_95_no_mirrors = 1.96 * math.sqrt((mwp_no_mirrors * (1 - mwp_no_mirrors)) / no_mirror_matches) if no_mirror_matches > 0 else 0.0
 
 		meta_pct = (players / total_players_all) if total_players_all > 0 else 0.0
 
@@ -3749,6 +3898,7 @@ def _compute_vintage_metagame_table(rows, key_field, opp_key_field, excluded_val
 			'mwp_overall': mwp_overall,
 			'ci_95': ci_95,
 			'mwp_no_mirrors': mwp_no_mirrors,
+			'ci_95_no_mirrors': ci_95_no_mirrors,
 			'total_matches': total_matches,
 			'total_matches_no_mirrors': no_mirror_matches,
 		})
@@ -3827,7 +3977,7 @@ def api_vintage_dashboard_generate():
 		dashboard_type = (payload.get('dashboard_type') or '').strip().lower()
 		filters = payload.get('filters') or {}
 
-		if dashboard_type not in {'metagame-breakdown', 'event-explorer', 'player-leaderboard', 'matchup-graph'}:
+		if dashboard_type not in {'metagame-breakdown', 'event-explorer', 'player-leaderboard', 'matchup-heatmap', 'matchup-graph'}:
 			return jsonify({'success': False, 'error': f'Unsupported dashboard type: {dashboard_type}'}), 400
 
 		sql_filters = []
@@ -3859,6 +4009,9 @@ def api_vintage_dashboard_generate():
 		if player_filter:
 			sql_filters.append('UPPER(m."P1") = :player_filter')
 			params['player_filter'] = player_filter.upper()
+		if selected_event_id:
+			sql_filters.append('CAST(m."EVENT_ID" AS VARCHAR) = :selected_event_id')
+			params['selected_event_id'] = selected_event_id
 
 		where_clause = ''
 		if sql_filters:
@@ -3919,6 +4072,24 @@ def api_vintage_dashboard_generate():
 				for row in rows
 				if str(row.get('P1') or '').strip()
 			})
+			seen_match_players = set()
+			match_wins = 0
+			match_losses = 0
+			for row in rows:
+				match_id = str(row.get('MATCH_ID') or '').strip()
+				player = str(row.get('P1') or '').strip()
+				match_winner = str(row.get('MATCH_WINNER') or '').strip().upper()
+				if not match_id or not player:
+					continue
+				match_key = (match_id, player)
+				if match_key in seen_match_players:
+					continue
+				seen_match_players.add(match_key)
+				if match_winner == 'P1':
+					match_wins += 1
+				elif match_winner == 'P2':
+					match_losses += 1
+			match_win_pct = (match_wins / (match_wins + match_losses)) if (match_wins + match_losses) > 0 else 0.0
 
 			opponent_archetype_rows = _compute_vintage_matchup_graph_series(
 				rows=rows,
@@ -3935,6 +4106,7 @@ def api_vintage_dashboard_generate():
 				'success': True,
 				'data': {
 					'unique_players': unique_players,
+					'match_win_pct': match_win_pct,
 					'opponent_archetype_rows': opponent_archetype_rows,
 					'opponent_subarchetype_rows': opponent_subarchetype_rows,
 				}
@@ -3961,6 +4133,7 @@ def api_vintage_dashboard_generate():
 
 			per_player = {}
 			relevant_event_ids = set()
+			relevant_player_events = set()
 			for row in player_rows:
 				player_name = str(row.get('P1') or '').strip()
 				event_id = str(row.get('EVENT_ID') or '').strip()
@@ -3981,6 +4154,7 @@ def api_vintage_dashboard_generate():
 				if event_id:
 					metrics['events'].add(event_id)
 					relevant_event_ids.add(event_id)
+					relevant_player_events.add((event_id, player_name.upper()))
 				if match_id:
 					metrics['matches'].add((match_id, player_name))
 				if match_winner == 'P1':
@@ -3999,7 +4173,12 @@ def api_vintage_dashboard_generate():
 
 				for standing in standings_rows:
 					player_name = str(standing.get('P1') or '').strip()
+					event_id = str(standing.get('EVENT_ID') or '').strip()
 					if not player_name or player_name not in per_player:
+						continue
+					if not event_id:
+						continue
+					if (event_id, player_name.upper()) not in relevant_player_events:
 						continue
 					rank_raw = standing.get('EVENT_RANK')
 					try:
@@ -4476,6 +4655,16 @@ def api_vintage_dashboard_generate():
 						'player': second_row.get('player') or '--',
 						'deck': second_row.get('deck') or 'Selected event',
 					}
+
+		if dashboard_type == 'matchup-heatmap':
+			return jsonify({
+				'success': True,
+				'data': {
+					'unique_players': unique_players,
+					'selected_event_id': selected_event_id,
+					'event_matchup_heatmap': event_matchup_heatmap,
+				}
+			})
 
 		return jsonify({
 			'success': True,

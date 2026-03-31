@@ -61,6 +61,13 @@
     border-color: #0039A6;
 }
 
+input[type="date"].filter-select:focus,
+input[type="date"].filter-select:focus-visible {
+    outline: none;
+    border-color: #ddd;
+    box-shadow: none;
+}
+
 .date-inputs {
     display: flex;
     flex-direction: column;

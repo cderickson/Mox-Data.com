@@ -1,0 +1,747 @@
+{% extends 'base.html' %}
+
+{% block title %}Mox Data - Data Dictionary{% endblock %}
+{% block page_title %}Data Dictionary{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='datadict.css') }}">
+{% endblock %}
+
+{% block content %}
+
+<div class="content-wrapper">
+  <div class="data-dict-container">
+	
+		<!-- Matches Table -->
+		<div class="card collapsible-tab" data-target="matches">
+			<div class="section-card-header">
+				<h2 class="section-card-title">
+					Matches Table
+					<span class="table-badge">Primary Table</span>
+				</h2>
+				<div class="message-box standard table-description">
+					<strong>Match-level table:</strong> Contains match details including players, decks, results, and metadata for each MTGO match.
+				</div>
+				<i class="fas fa-chevron-down"></i>
+			</div>
+    	<div class="section-card-content" id="matches">
+				<div class="table-container">
+					<div class="table-wrapper">
+						<table class="data-table">
+							<thead>
+								<tr>
+									<th class="col-name">Column Name</th>
+									<th class="col-desc">Description</th>
+									<th class="col-type">Data Type</th>
+									<th class="col-format">Format/Options</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td class="col-name-cell">Match_ID</td>
+									<td class="col-desc-cell">Match Identification Code</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Filename&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Draft_ID</td>
+									<td class="col-desc-cell">Draft Identification Code</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>YYYYMMDDHHMM-&lt;Username&gt;-&lt;LimitedFormat&gt;-&lt;MTGODraftCode&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P1</td>
+									<td class="col-desc-cell">Player 1 Username</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Username&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P1_Arch</td>
+									<td class="col-desc-cell">Player 1 Deck Archetype</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">Aggro</span>
+										<span class="option">Midrange</span>
+										<span class="option">Control</span>
+										<span class="option">Combo</span>
+										<span class="option">Prison</span>
+										<span class="option">Tempo</span>
+										<span class="option">Ramp</span>
+										<span class="option">Rogue</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P1_Subarch</td>
+									<td class="col-desc-cell">Player 1 Deck Name</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Deck Name&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P2</td>
+									<td class="col-desc-cell">Player 2 Username</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Username&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P2_Arch</td>
+									<td class="col-desc-cell">Player 2 Deck Archetype</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">Aggro</span>
+										<span class="option">Midrange</span>
+										<span class="option">Control</span>
+										<span class="option">Combo</span>
+										<span class="option">Prison</span>
+										<span class="option">Tempo</span>
+										<span class="option">Ramp</span>
+										<span class="option">Rogue</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P2_Subarch</td>
+									<td class="col-desc-cell">Player 2 Deck Name</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Deck Name&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P1_Roll</td>
+									<td class="col-desc-cell">Player 1 Opening Die Roll</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">1</span>
+										<span class="option">2</span>
+										<span class="option">3</span>
+										<span class="option">4</span>
+										<span class="option">5</span>
+										<span class="option">6</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P2_Roll</td>
+									<td class="col-desc-cell">Player 2 Opening Die Roll</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">1</span>
+										<span class="option">2</span>
+										<span class="option">3</span>
+										<span class="option">4</span>
+										<span class="option">5</span>
+										<span class="option">6</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Roll_Winner</td>
+									<td class="col-desc-cell">Player who won the opening die roll</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">P1</span>
+										<span class="option">P2</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P1_Wins</td>
+									<td class="col-desc-cell">Player 1 games won during match</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">0</span>
+										<span class="option">1</span>
+										<span class="option">2</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P2_Wins</td>
+									<td class="col-desc-cell">Player 2 games won during match</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">0</span>
+										<span class="option">1</span>
+										<span class="option">2</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Match_Winner</td>
+									<td class="col-desc-cell">Player who won the match</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">NA</span>
+										<span class="option">P1</span>
+										<span class="option">P2</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Format</td>
+									<td class="col-desc-cell">Format being played</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">NA</span>
+										<span class="option">Vintage</span>
+										<span class="option">Legacy</span>
+										<span class="option">Modern</span>
+										<span class="option">Standard</span>
+										<span class="option">Pioneer</span>
+										<span class="option">Pauper</span>
+										<span class="option">Other Constructed</span>
+										<span class="option">Booster Draft</span>
+										<span class="option">Sealed Deck</span>
+										<span class="option">Cube</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Limited_Format</td>
+									<td class="col-desc-cell">Limited set/pool descriptor for limited formats</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Set or Limited Descriptor&gt; (or NA)</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Match_Type</td>
+									<td class="col-desc-cell">Event type in which match was played</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">NA</span>
+										<span class="option">League</span>
+										<span class="option">Preliminary</span>
+										<span class="option">Challenge</span>
+										<span class="option">Premier Constructed</span>
+										<span class="option">2-Man</span>
+										<span class="option">Practice</span>
+										<span class="option">Open Play BO1</span>
+										<span class="option">Draft League</span>
+										<span class="option">Swiss Draft</span>
+										<span class="option">Elimination Draft</span>
+										<span class="option">Friendly Sealed League</span>
+										<span class="option">Competitive Sealed League</span>
+										<span class="option">Premier Sealed</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Date</td>
+									<td class="col-desc-cell">Date and time at start of the match</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>YYYY-MM-DD HH:MM (24h)</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Proc_Date</td>
+									<td class="col-desc-cell">Date and time at which the match was processed</td>
+									<td class="col-type-cell"><span class="type-badge datetime">Datetime</span></td>
+									<td class="col-format-cell"><code>YYYY-MM-DD HH:MM (24h)</code></td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Games Table -->
+		<div class="card collapsible-tab" data-target="games">
+			<div class="section-card-header">
+				<h2 class="section-card-title">
+					Games Table
+					<span class="table-badge secondary">Secondary Table</span>
+				</h2>
+				<div class="message-box standard table-description">
+					<strong>Game-level data:</strong> Individual game details within each match, including play/draw decisions and game outcomes.
+				</div>
+				<i class="fas fa-chevron-down"></i>
+			</div>
+    	<div class="section-card-content" id="games">
+				<div class="table-container">
+					<div class="table-wrapper">
+						<table class="data-table">
+							<thead>
+								<tr>
+									<th class="col-name">Column Name</th>
+									<th class="col-desc">Description</th>
+									<th class="col-type">Data Type</th>
+									<th class="col-format">Format/Options</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td class="col-name-cell">Match_ID</td>
+									<td class="col-desc-cell">Match Identification Code</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Filename&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P1</td>
+									<td class="col-desc-cell">Player 1 Username</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Username&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P2</td>
+									<td class="col-desc-cell">Player 2 Username</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Username&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Game_Num</td>
+									<td class="col-desc-cell">Sequential game number</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">1</span>
+										<span class="option">2</span>
+										<span class="option">3</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">PD_Selector</td>
+									<td class="col-desc-cell">Player choosing whether to play/draw first</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">P1</span>
+										<span class="option">P2</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">PD_Choice</td>
+									<td class="col-desc-cell">Play/Draw selection</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">Play</span>
+										<span class="option">Draw</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">On_Play</td>
+									<td class="col-desc-cell">Player who is on the play</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">P1</span>
+										<span class="option">P2</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">On_Draw</td>
+									<td class="col-desc-cell">Player who is on the draw</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">P1</span>
+										<span class="option">P2</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P1_Mulls</td>
+									<td class="col-desc-cell">Player 1, number of mulligans</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">0</span>
+										<span class="option">1</span>
+										<span class="option">2</span>
+										<span class="option">3</span>
+										<span class="option">4</span>
+										<span class="option">5</span>
+										<span class="option">6</span>
+										<span class="option">7</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">P2_Mulls</td>
+									<td class="col-desc-cell">Player 2, number of mulligans</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">0</span>
+										<span class="option">1</span>
+										<span class="option">2</span>
+										<span class="option">3</span>
+										<span class="option">4</span>
+										<span class="option">5</span>
+										<span class="option">6</span>
+										<span class="option">7</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Game_Winner</td>
+									<td class="col-desc-cell">Player who won the game</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">NA</span>
+										<span class="option">P1</span>
+										<span class="option">P2</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Proc_Date</td>
+									<td class="col-desc-cell">Date and time at which the game was processed</td>
+									<td class="col-type-cell"><span class="type-badge datetime">Datetime</span></td>
+									<td class="col-format-cell"><code>YYYY-MM-DD HH:MM (24h)</code></td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Plays Table -->
+		<div class="card collapsible-tab" data-target="plays">
+			<div class="section-card-header">
+				<h2 class="section-card-title">
+					Plays Table
+					<span class="table-badge secondary">Secondary Table</span>
+				</h2>
+				<div class="message-box standard table-description">
+					<strong>Play-by-play data:</strong> Individual card plays and actions within each game, providing detailed gameplay analysis.
+				</div>
+				<i class="fas fa-chevron-down"></i>
+			</div>
+    	<div class="section-card-content" id="plays">
+				<div class="table-container">
+					<div class="table-wrapper">
+						<table class="data-table">
+							<thead>
+								<tr>
+									<th class="col-name">Column Name</th>
+									<th class="col-desc">Description</th>
+									<th class="col-type">Data Type</th>
+									<th class="col-format">Format/Options</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td class="col-name-cell">Match_ID</td>
+									<td class="col-desc-cell">Match Identification Code</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Filename&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Game_Num</td>
+									<td class="col-desc-cell">Sequential game number</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">1</span>
+										<span class="option">2</span>
+										<span class="option">3</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Play_Num</td>
+									<td class="col-desc-cell">Sequential play number (of current game)</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell"><code>&lt;1, 2, 3, 4, 5, ...&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Turn_Num</td>
+									<td class="col-desc-cell">Sequential turn number (of current game)</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell"><code>&lt;1, 2, 3, 4, 5, ...&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Casting Player</td>
+									<td class="col-desc-cell">Username of player who took an action</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Username&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Action</td>
+									<td class="col-desc-cell">Game Action being taken</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">Land Drop</span>
+										<span class="option">Casts</span>
+										<span class="option">Activated Ability</span>
+										<span class="option">Triggers</span>
+										<span class="option">Attacks</span>
+										<span class="option">Draws</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Primary_Card</td>
+									<td class="col-desc-cell">Name of card being cast/played/etc.</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Card&gt;, if applicable</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Target_List</td>
+									<td class="col-desc-cell">List of cards being targeted by spell/ability</td>
+									<td class="col-type-cell"><span class="type-badge json">JSON</span></td>
+									<td class="col-format-cell"><code>JSON array of &lt;Card&gt; objects</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Opp_Target</td>
+									<td class="col-desc-cell">Binary indicator of spell/ability targeting opponent</td>
+									<td class="col-type-cell"><span class="type-badge binary">Binary</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">0</span>
+										<span class="option">1</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Self_Target</td>
+									<td class="col-desc-cell">Binary indicator of spell/ability targeting Casting_Player</td>
+									<td class="col-type-cell"><span class="type-badge binary">Binary</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">0</span>
+										<span class="option">1</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Cards_Drawn</td>
+									<td class="col-desc-cell">Total number of cards drawn (current action)</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell"><code>If applicable</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Attacker_List</td>
+									<td class="col-desc-cell">List of cards being declared as attackers</td>
+									<td class="col-type-cell"><span class="type-badge json">JSON</span></td>
+									<td class="col-format-cell"><code>JSON array of &lt;Card&gt; objects</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Attackers</td>
+									<td class="col-desc-cell">Total number of attacking creatures (current action)</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell"><code>If applicable</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Active_Player</td>
+									<td class="col-desc-cell">Player whose turn it is currently</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Username&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Non-Active Player</td>
+									<td class="col-desc-cell">Player whose turn it is not currently</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Username&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Proc_Date</td>
+									<td class="col-desc-cell">Date and time at which the play was processed</td>
+									<td class="col-type-cell"><span class="type-badge datetime">Datetime</span></td>
+									<td class="col-format-cell"><code>YYYY-MM-DD HH:MM (24h)</code></td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Drafts Table -->
+		<div class="card collapsible-tab" data-target="drafts">
+			<div class="section-card-header">
+				<h2 class="section-card-title">
+					Drafts Table
+					<span class="table-badge">Primary Table</span>
+				</h2>
+				<div class="message-box standard table-description">
+					<strong>Draft data:</strong> Information about draft sessions, including players, format, and results.
+				</div>
+				<i class="fas fa-chevron-down"></i>
+			</div>
+    	<div class="section-card-content" id="drafts">
+				<div class="table-container">
+					<div class="table-wrapper">
+						<table class="data-table">
+							<thead>
+								<tr>
+									<th class="col-name">Column Name</th>
+									<th class="col-desc">Description</th>
+									<th class="col-type">Data Type</th>
+									<th class="col-format">Format/Options</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td class="col-name-cell">Draft_ID</td>
+									<td class="col-desc-cell">Draft Identification Code</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>YYYYMMDDHHMM-&lt;Username&gt;-&lt;LimitedFormat&gt;-&lt;MTGODraftCode&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Hero</td>
+									<td class="col-desc-cell">Player whose draft perspective is being shown</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Username&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Player2 .. 8</td>
+									<td class="col-desc-cell">Other drafters (7 other total players)</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Username&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Match_Wins</td>
+									<td class="col-desc-cell">Player 1, games won during match</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">0</span>
+										<span class="option">1</span>
+										<span class="option">2</span>
+									</div>
+									<div >
+										Set automatically after using <strong>Apply Associated Draft_IDs</strong> function
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Match_Losses</td>
+									<td class="col-desc-cell">Player 2, games won during match</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">0</span>
+										<span class="option">1</span>
+										<span class="option">2</span>
+									</div>
+									<div >
+										Set automatically after using <strong>Apply Associated Draft_IDs</strong> function
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Draft_Format</td>
+									<td class="col-desc-cell">Sets being drafted</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">SETSETSET</span>
+										<span class="option">SET x6</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Date</td>
+									<td class="col-desc-cell">Date and time at start of the draft</td>
+									<td class="col-type-cell"><span class="type-badge datetime">DateTime</span></td>
+									<td class="col-format-cell"><code>YYYY-MM-DD HH:MM (24h)</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Proc_Date</td>
+									<td class="col-desc-cell">Date and time at which the draft was processed</td>
+									<td class="col-type-cell"><span class="type-badge datetime">Datetime</span></td>
+									<td class="col-format-cell"><code>YYYY-MM-DD HH:MM (24h)</code></td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Draft Picks Table -->
+		<div class="card collapsible-tab" data-target="draft-picks">
+			<div class="section-card-header">
+				<h2 class="section-card-title">
+					Draft Picks Table
+					<span class="table-badge secondary">Secondary Table</span>
+				</h2>
+				<div class="message-box standard table-description">
+					<strong>Draft pick data:</strong> Individual card picks during draft sessions, including pack and pick numbers and available cards.
+				</div>
+				<i class="fas fa-chevron-down"></i>
+			</div>
+    	<div class="section-card-content" id="draft-picks">
+				<div class="table-container">
+					<div class="table-wrapper">
+						<table class="data-table">
+							<thead>
+								<tr>
+									<th class="col-name">Column Name</th>
+									<th class="col-desc">Description</th>
+									<th class="col-type">Data Type</th>
+									<th class="col-format">Format/Options</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td class="col-name-cell">Draft_ID</td>
+									<td class="col-desc-cell">Draft Identification Code</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>YYYYMMDDHHMM-&lt;Username&gt;-&lt;LimitedFormat&gt;-&lt;MTGODraftCode&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Pack_Num</td>
+									<td class="col-desc-cell">Sequential pack number</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell">
+									<div class="options-list">
+										<span class="option">1</span>
+										<span class="option">2</span>
+										<span class="option">3</span>
+									</div>
+									</td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Pick_Num</td>
+									<td class="col-desc-cell">Sequential pick number</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell"><code>[1, 2, 3, .. 15]</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Pick_Ovr</td>
+									<td class="col-desc-cell">Sequential pick number, overall</td>
+									<td class="col-type-cell"><span class="type-badge integer">Integer</span></td>
+									<td class="col-format-cell"><code>[1, 2, 3, .. 45]</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Avail1 .. 14</td>
+									<td class="col-desc-cell">Cards remaining in the pack</td>
+									<td class="col-type-cell"><span class="type-badge string">String</span></td>
+									<td class="col-format-cell"><code>&lt;Card&gt;</code></td>
+								</tr>
+								<tr>
+									<td class="col-name-cell">Proc_Date</td>
+									<td class="col-desc-cell">Date and time at which the pick was processed</td>
+									<td class="col-type-cell"><span class="type-badge datetime">Datetime</span></td>
+									<td class="col-format-cell"><code>YYYY-MM-DD HH:MM (24h)</code></td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<script src="{{ url_for('static', filename='collapsible.js') }}" defer></script>
+
+{% endblock %}

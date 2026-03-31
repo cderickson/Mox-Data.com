@@ -40,9 +40,10 @@ function closeSidebar() {
 
 // User Dropdown Management
 function toggleUserDropdown() {
-  const userInfo = document.querySelector('.user-info');
+  const accountUserMenu = document.getElementById('accountUserMenu');
+  const userInfo = accountUserMenu ? accountUserMenu.querySelector('.user-info') : null;
   const userDropdown = document.getElementById('user-dropdown');
-  const userChevron = document.querySelector('.user-chevron');
+  const userChevron = accountUserMenu ? accountUserMenu.querySelector('.user-chevron') : null;
   
   if (userInfo && userDropdown) {
     const isActive = userInfo.classList.contains('active');
@@ -58,16 +59,16 @@ function toggleUserDropdown() {
 
 // Close user dropdown when clicking outside
 document.addEventListener('click', function(event) {
-  const userMenu = document.querySelector('.user-menu');
+  const userMenu = document.getElementById('accountUserMenu');
   const userDropdown = document.getElementById('user-dropdown');
-  const userInfo = document.querySelector('.user-info');
+  const userInfo = userMenu ? userMenu.querySelector('.user-info') : null;
   
   if (userMenu && !userMenu.contains(event.target)) {
     if (userDropdown && userInfo) {
       userDropdown.classList.remove('show');
       userInfo.classList.remove('active');
       
-      const userChevron = document.querySelector('.user-chevron');
+      const userChevron = userMenu ? userMenu.querySelector('.user-chevron') : null;
       if (userChevron) {
         userChevron.style.transform = 'rotate(0deg)';
       }

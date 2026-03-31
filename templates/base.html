@@ -53,10 +53,13 @@
           <img src="{{ url_for('static', filename='images/icon2.png') }}" width="32" height="32" class="brand-icon">
           <span class="brand-text">Mox Data</span>
         </a>
+        <a href="{{ url_for('views.vintage') }}" class="header-vintage-link">
+          <span class="nav-text">Vintage Data</span>
+        </a>
       </div>
 
       <div class="header-center">
-        {% set show_title_pages = ['views.faq', 'views.getting_started', 'views.data_dict', 'views.dashboards', 'views.table'] %}
+        {% set show_title_pages = ['views.faq', 'views.getting_started', 'views.data_dict', 'views.dashboards', 'views.table', 'views.vintage', 'views.vintage_api_documentation', 'views.vintage_data_dictionary'] %}
         {% if request.endpoint in show_title_pages %}
           <h1 class="page-title section-title">{% block page_title %}{% endblock %}</h1>
         {% endif %}
@@ -64,7 +67,7 @@
 
       <div class="header-right">
         {% if user.is_authenticated %}
-        <div class="user-menu">
+        <div class="user-menu" id="accountUserMenu">
           <div class="user-info" onclick="toggleUserDropdown()">
             <i class="fas fa-user-circle user-avatar"></i>
             <div class="user-details">
@@ -122,7 +125,10 @@
           <i class="fas {% if sidebar_collapsed %}fa-chevron-right{% else %}fa-chevron-left{% endif %}"></i>
         </button>
         <div class="sidebar-content">
-          {% if not user.is_authenticated %}
+          {% set vintage_page_endpoints = ['views.vintage', 'views.vintage_api_documentation', 'views.vintage_data_dictionary'] %}
+          {% set is_vintage_page = request.endpoint in vintage_page_endpoints %}
+
+          {% if not user.is_authenticated and not is_vintage_page %}
           <div class="nav-section">
             <h3 class="nav-section-title">Mox Data</h3>
             <ul class="nav-list">
@@ -150,7 +156,33 @@
           </div>
           {% endif %}
 
-          {% if user.is_authenticated %}
+          {% if is_vintage_page %}
+          <div class="nav-section">
+            <h3 class="nav-section-title">Vintage Data</h3>
+            <ul class="nav-list">
+              <li class="nav-item">
+                <a href="{{ url_for('views.vintage') }}" class="nav-link">
+                  <i class="fas fa-chart-line nav-icon"></i>
+                  <span class="nav-text">Vintage Dashboards</span>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a href="{{ url_for('views.vintage_api_documentation') }}" class="nav-link">
+                  <i class="fas fa-code nav-icon"></i>
+                  <span class="nav-text">API Documentation</span>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a href="{{ url_for('views.vintage_data_dictionary') }}" class="nav-link">
+                  <i class="fas fa-book nav-icon"></i>
+                  <span class="nav-text">Data Dictionary</span>
+                </a>
+              </li>
+            </ul>
+          </div>
+          {% endif %}
+
+          {% if user.is_authenticated and not is_vintage_page %}
           <div class="nav-section">
             <h3 class="nav-section-title">Tables</h3>
             <ul class="nav-list">
