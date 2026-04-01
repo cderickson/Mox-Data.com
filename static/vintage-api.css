@@ -1,0 +1,138 @@
+  .api-docs-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 8px;
+  }
+
+  .api-docs-layout {
+    display: grid;
+  grid-template-columns: 340px 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+
+  .api-docs-sidebar {
+    min-width: 0;
+  }
+
+  .api-docs-main {
+    min-width: 0;
+  }
+
+  @media (max-width: 1450px) {
+    .api-docs-container {
+      max-width: 98%;
+      padding: 0 8px;
+    }
+  }
+
+  @media (max-width: 1200px) {
+    .api-docs-container {
+      max-width: 100%;
+      padding: 0 4px;
+    }
+  }
+  
+  .api-docs-subtitle {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+
+  .api-docs-sidebar .section-card {
+    height: fit-content;
+  }
+
+  .api-docs-sidebar .section-card-title {
+    font-size: 16px;
+  }
+
+  .api-docs-main .card.collapsible-tab {
+    padding: 0;
+  }
+
+  /* Match FAQ card inner edge spacing for API collapsible cards */
+  .api-docs-main .collapsible-tab .section-card-header {
+    padding: 20px 24px 16px 24px;
+  }
+
+  /* Keep horizontal inset stable during collapse/expand to prevent left-shift */
+  .api-docs-main .collapsible-tab .section-card-content {
+    padding: 0 24px;
+  }
+
+  .api-docs-main .collapsible-tab.expanded .section-card-content {
+    padding: 0 24px;
+  }
+
+  /* Keep vertical inset stable during collapse/expand to prevent up-shift */
+  .api-docs-main .collapsible-tab .section-card-content .section-card-body {
+    padding: 16px 0;
+  }
+
+  .api-docs-code {
+    margin: 0;
+    padding: 14px 16px;
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    overflow-x: auto;
+  }
+
+  .api-docs-code code {
+    color: inherit;
+    white-space: pre;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .api-endpoint-item {
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    margin: 10px 0;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  .api-endpoint-item summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 12px 14px;
+    font-weight: 600;
+    color: #0039A6;
+    background: #f8f9fa;
+    border-bottom: 1px solid transparent;
+    user-select: none;
+  }
+
+  .api-endpoint-item summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .api-endpoint-item summary::after {
+    content: "\f078";
+    font-family: "Font Awesome 5 Free";
+    font-weight: 900;
+    float: right;
+    transition: transform 0.2s ease;
+  }
+
+  .api-endpoint-item[open] summary {
+    border-bottom-color: #e9ecef;
+  }
+
+  .api-endpoint-item[open] summary::after {
+    transform: rotate(180deg);
+  }
+
+  .api-endpoint-content {
+    padding: 12px 14px 2px 14px;
+  }
+
+  @media (max-width: 1200px) {
+    .api-docs-layout {
+      grid-template-columns: 1fr;
+    }
+  }

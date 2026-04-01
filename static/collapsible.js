@@ -15,6 +15,12 @@ function initializeCollapsibleTabs() {
         const content = tab.querySelector('.section-card-content');
         
         if (!header || !content) return;
+
+        // Ensure only the dedicated right-side chevron acts as the rotating indicator.
+        const headerIcon = Array.from(header.children).find((child) => child.tagName === 'I');
+        if (headerIcon) {
+            headerIcon.classList.add('collapsible-indicator');
+        }
         
         // Make header focusable for accessibility
         header.setAttribute('tabindex', '0');
@@ -59,21 +65,29 @@ function toggleTab(tab) {
     }
 }
 
+function clearPendingExpandCleanup(content) {
+    if (content._expandTransitionHandler) {
+        content.removeEventListener('transitionend', content._expandTransitionHandler);
+        content._expandTransitionHandler = null;
+    }
+}
+
 function expandTab(tab, animate = true) {
     const header = tab.querySelector('.section-card-header');
     const content = tab.querySelector('.section-card-content');
     
     if (!animate) {
         // Instant expand (for initialization)
+        clearPendingExpandCleanup(content);
         tab.classList.add('expanded');
         header.setAttribute('aria-expanded', 'true');
         content.style.maxHeight = 'none';
         content.style.opacity = '1';
-        content.style.padding = '20px';
         return;
     }
     
     // Animated expand
+    clearPendingExpandCleanup(content);
     tab.classList.add('expanded');
     header.setAttribute('aria-expanded', 'true');
     
@@ -83,14 +97,23 @@ function expandTab(tab, animate = true) {
     // Set explicit height for smooth animation
     content.style.maxHeight = fullHeight + 'px';
     content.style.opacity = '1';
-    content.style.padding = '20px';
     
-    // Clean up after animation completes
-    setTimeout(() => {
+    // Clean up after max-height transition completes
+    const onTransitionEnd = (event) => {
+        if (event.propertyName !== 'max-height') {
+            return;
+        }
+
+        content.removeEventListener('transitionend', onTransitionEnd);
+        content._expandTransitionHandler = null;
+
         if (tab.classList.contains('expanded')) {
             content.style.maxHeight = 'none';
         }
-    }, 400);
+    };
+
+    content._expandTransitionHandler = onTransitionEnd;
+    content.addEventListener('transitionend', onTransitionEnd);
 }
 
 function collapseTab(tab, animate = true) {
@@ -99,15 +122,16 @@ function collapseTab(tab, animate = true) {
     
     if (!animate) {
         // Instant collapse (for initialization)
+        clearPendingExpandCleanup(content);
         tab.classList.remove('expanded');
         header.setAttribute('aria-expanded', 'false');
         content.style.maxHeight = '0';
         content.style.opacity = '0';
-        content.style.padding = '0 20px';
         return;
     }
     
     // Get current height before starting animation
+    clearPendingExpandCleanup(content);
     const currentHeight = content.scrollHeight;
     content.style.maxHeight = currentHeight + 'px';
     
@@ -119,7 +143,6 @@ function collapseTab(tab, animate = true) {
     header.setAttribute('aria-expanded', 'false');
     content.style.maxHeight = '0';
     content.style.opacity = '0';
-    content.style.padding = '0 20px';
 }
 
 // Utility function to expand all tabs (useful for testing or "expand all" feature)

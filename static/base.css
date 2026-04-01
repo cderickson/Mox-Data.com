@@ -1037,6 +1037,18 @@ table tbody tr:last-child td {
     margin-top: 0;
 }
 
+/* Match FAQ message-box typography inside modals */
+.modal-body .message-box p,
+.modal-body .message-box ul,
+.modal-body .message-box ol {
+    font-size: 13px;
+}
+
+.modal-body .message-box h4,
+.modal-body .message-box h5 {
+    font-size: 14px;
+}
+
 .modal-footer {
     padding: 8px 24px 8px 24px; /* Balanced top and bottom padding */
     display: flex;
@@ -1906,8 +1918,8 @@ table tbody tr:last-child td {
     gap: 12px;
 }
 
-/* Chevron icon styling */
-.collapsible-tab .section-card-header i {
+/* Chevron indicator styling */
+.collapsible-tab .section-card-header .collapsible-indicator {
     font-size: 16px;
     color: #6b7280;
     transition: all 0.3s ease;
@@ -1918,7 +1930,7 @@ table tbody tr:last-child td {
 /* Icon hover color removed */
 
 /* Rotate chevron when expanded */
-.collapsible-tab.expanded .section-card-header i {
+.collapsible-tab.expanded .section-card-header .collapsible-indicator {
     transform: rotate(180deg);
     color: #0039A6;
 }
@@ -1927,7 +1939,7 @@ table tbody tr:last-child td {
 .collapsible-tab .section-card-content {
     max-height: 0;
     overflow: hidden;
-    transition: all 0.4s ease;
+    transition: max-height 0.4s ease, opacity 0.3s ease;
     opacity: 0;
 }
 
@@ -2011,27 +2023,11 @@ table tbody tr:last-child td {
 
 /* Smooth animation for content reveal */
 .collapsible-tab .section-card-content {
-    transition: max-height 0.4s ease, opacity 0.3s ease, padding 0.4s ease;
+    transition: max-height 0.4s ease, opacity 0.3s ease;
 }
 
 .collapsible-tab.expanded .section-card-content {
-    animation: expandContent 0.4s ease forwards;
-}
-
-@keyframes expandContent {
-    0% {
-        max-height: 0;
-        opacity: 0;
-        padding: 0 20px;
-    }
-    50% {
-        opacity: 0.5;
-    }
-    100% {
-        max-height: 100vh;
-        opacity: 1;
-        padding: 16px 20px;
-    }
+    animation: none;
 }
 
 /* Focus and accessibility */
@@ -2096,7 +2092,7 @@ table tbody tr:last-child td {
 @media (prefers-reduced-motion: reduce) {
     .collapsible-tab,
     .collapsible-tab .section-card-header,
-    .collapsible-tab .section-card-header i,
+    .collapsible-tab .section-card-header .collapsible-indicator,
     .collapsible-tab .section-card-content {
         transition: none;
     }
@@ -2105,7 +2101,7 @@ table tbody tr:last-child td {
         animation: none;
     }
     
-    .collapsible-tab.expanded .section-card-header i {
+    .collapsible-tab.expanded .section-card-header .collapsible-indicator {
         transform: rotate(180deg);
     }
 }
@@ -2188,6 +2184,34 @@ table tbody tr:last-child td {
     overflow: visible;
 }
 
+/* Match data-dictionary card edge spacing for FAQ collapsible cards */
+.faq-container .collapsible-tab .section-card-header {
+    padding: 12px 24px 16px 24px;
+}
+
+.faq-container .collapsible-tab.expanded .section-card-content {
+    padding: 0 24px;
+}
+
+/* Keep horizontal inset stable during collapse/expand to prevent left-shift */
+.faq-container .collapsible-tab .section-card-content {
+    padding: 0 24px;
+}
+
+/* Keep vertical inset stable during collapse/expand to prevent up-shift */
+.faq-container .collapsible-tab .section-card-content .section-card-body {
+    padding: 16px 0;
+}
+
+/* Match API docs edge spacing for Getting Started static cards */
+.faq-container .getting-started-stack .static-card .section-card-header {
+    padding: 20px 24px 16px 24px;
+}
+
+.faq-container .getting-started-stack .static-card .section-card-content {
+    padding: 16px 24px;
+}
+
 @media (max-width: 900px) {
     .faq-container .static-grid {
         grid-template-columns: 1fr; /* stack on small screens */
@@ -2219,40 +2243,28 @@ table tbody tr:last-child td {
     }
 }
 
-/* Getting Started: smaller body text inside message boxes */
-.faq-container .message-box p,
-.faq-container .message-box ul,
-.faq-container .message-box ol {
-    font-size: 12px;
+/* FAQ page: message-box typography matches site's compact standard */
+.faq-container > .card .message-box p,
+.faq-container > .card .message-box ul,
+.faq-container > .card .message-box ol {
+    font-size: 13px;
 }
 
-/* Getting Started: smaller headings in message boxes */
-.faq-container .message-box h4,
-.faq-container .message-box h5 {
-    font-size: 14px; /* override base 16px for tighter layout */
+.faq-container > .card .message-box h4,
+.faq-container > .card .message-box h5 {
+    font-size: 14px;
 }
 
-/* FAQ + Getting Started: match changelog collapse/expand behavior */
-.faq-container .collapsible-tab .section-card-content {
-    padding: 0 !important;
-    margin: 0 !important;
+/* Getting Started: use standard message-box typography */
+.faq-container .getting-started-stack .message-box p,
+.faq-container .getting-started-stack .message-box ul,
+.faq-container .getting-started-stack .message-box ol {
+    font-size: 14px;
 }
 
-body.js-loaded .faq-container .collapsible-tab .section-card-content {
-    transition: max-height 0.3s ease, opacity 0.3s ease !important;
-}
-
-.faq-container .collapsible-tab.expanded .section-card-content {
-    max-height: none !important;
-    height: auto !important;
-    padding: 8px 20px 16px 20px !important;
-    margin: 0 !important;
-}
-
-.faq-container .collapsible-tab .section-card-content > *:last-child,
-.faq-container .collapsible-tab .section-card-body > *:last-child,
-.faq-container .collapsible-tab .section-card-content > div > *:last-child {
-    margin-bottom: 0 !important;
+.faq-container .getting-started-stack .message-box h4,
+.faq-container .getting-started-stack .message-box h5 {
+    font-size: 16px;
 }
 
 /* Getting Started: gold badge style overrides */
@@ -2665,4 +2677,32 @@ body.js-loaded .faq-container .collapsible-tab .section-card-content {
     padding: 8px 16px; /* Match header action button padding */
     justify-content: center;
     text-align: center;
+}
+
+/* Uncomment below to change it back to blue.*/
+/* Global header text standard: card + modal headers use black text */
+.section-card-header .section-card-title,
+.section-card-header .section-card-title i,
+.modal-header .modal-title,
+.modal-header h1,
+.modal-header h2,
+.modal-header h3,
+.modal-header h4,
+.modal-header h5,
+.modal-header h6,
+.modal-header i {
+    color: #000 !important;
+}
+
+/* Keep header underline accents aligned with black header text */
+.section-card-header .section-card-title,
+.modal-header .modal-title,
+.modal-header h1,
+.modal-header h2,
+.modal-header h3,
+.modal-header h4,
+.modal-header h5,
+.modal-header h6,
+.table-header .table-title {
+    border-bottom-color: #000 !important;
 }

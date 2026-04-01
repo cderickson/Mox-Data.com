@@ -3549,7 +3549,7 @@ def filter_options():
 	filter_options_dict['Date2'] = date2[0:4] + '-' + date2[4:6] + '-' + date2[6:]
 	return jsonify(filter_options_dict)
 
-@views.route('/gettingstarted', methods=['GET'])
+@views.route('/getting-started', methods=['GET'])
 def getting_started():
 	return render_template('gettingstarted.html', user=current_user)
 
@@ -3559,11 +3559,39 @@ def faq():
 
 @views.route('/vintage-data', methods=['GET'])
 def vintage():
-	return render_template('vintage.html', user=current_user)
+	default_start_date = ''
+	default_end_date = ''
+	try:
+		date_row = db.session.execute(text(
+			'SELECT MIN("EVENT_DATE") AS min_event_date, MAX("EVENT_DATE") AS max_event_date '
+			'FROM "[vapi].EVENTS"'
+		)).first()
+		if date_row:
+			min_date = date_row[0]
+			max_date = date_row[1]
+			default_start_date = (
+				min_date.strftime('%Y-%m-%d')
+				if isinstance(min_date, (datetime.date, datetime.datetime))
+				else str(min_date)[:10] if min_date is not None else ''
+			)
+			default_end_date = (
+				max_date.strftime('%Y-%m-%d')
+				if isinstance(max_date, (datetime.date, datetime.datetime))
+				else str(max_date)[:10] if max_date is not None else ''
+			)
+	except Exception as e:
+		debug_log(f'Error loading vintage default dates: {e}')
+
+	return render_template(
+		'vintage.html',
+		user=current_user,
+		vintage_date1=default_start_date,
+		vintage_date2=default_end_date,
+	)
 
 @views.route('/vintage-data/api-documentation', methods=['GET'])
 def vintage_api_documentation():
-	return render_template('vintage-api-documentation.html', user=current_user)
+	return render_template('vintage-api.html', user=current_user)
 
 @views.route('/vintage-data/data-dictionary', methods=['GET'])
 def vintage_data_dictionary():
@@ -3593,9 +3621,6 @@ def _format_vintage_label_value(value):
 
 @views.route('/api/vintage/filter-options', methods=['GET'])
 def vintage_filter_options():
-	if not _is_admin_authorized():
-		return jsonify({'error': 'Forbidden'}), 403
-
 	filter_options_dict = {
 		'Date1': '',
 		'Date2': '',
@@ -3690,9 +3715,6 @@ def vintage_filter_options():
 
 @views.route('/api/vintage/filtered-options', methods=['POST'])
 def vintage_filtered_options():
-	if not _is_admin_authorized():
-		return jsonify({'error': 'Forbidden'}), 403
-
 	payload = request.get_json() or {}
 	filters = payload.get('filters') or {}
 	filter_options_dict = {
@@ -3969,9 +3991,6 @@ def _compute_vintage_matchup_graph_series(rows, opp_key_field, excluded_values=N
 
 @views.route('/api/vintage/dashboard/generate', methods=['POST'])
 def api_vintage_dashboard_generate():
-	if not _is_admin_authorized():
-		return jsonify({'error': 'Forbidden'}), 403
-
 	try:
 		payload = request.get_json() or {}
 		dashboard_type = (payload.get('dashboard_type') or '').strip().lower()
@@ -4702,14 +4721,41 @@ def reprocess():
 	)
 	return redirect('/')
 
-@views.route('/datadictionary', methods=['GET'])
+@views.route('/data-dictionary', methods=['GET'])
 def data_dict():
   return render_template('datadict.html', user=current_user)
 
 @views.route('/dashboards', methods=['GET'])
 @login_required
 def dashboards():
-	return render_template('dashboards.html', user=current_user)
+	default_start_date = '2000-01-01'
+	default_end_date = '2999-12-31'
+	try:
+		first_match = (
+			Match.query
+			.filter(Match.uid == current_user.uid, Match.p1 == current_user.username)
+			.order_by(Match.date.asc())
+			.first()
+		)
+		last_match = (
+			Match.query
+			.filter(Match.uid == current_user.uid, Match.p1 == current_user.username)
+			.order_by(Match.date.desc())
+			.first()
+		)
+		if first_match and first_match.date:
+			default_start_date = str(first_match.date)[:10]
+		if last_match and last_match.date:
+			default_end_date = str(last_match.date)[:10]
+	except Exception as e:
+		debug_log(f'Error loading dashboard default dates: {e}')
+
+	return render_template(
+		'dashboards.html',
+		user=current_user,
+		dashboard_date1=default_start_date,
+		dashboard_date2=default_end_date,
+	)
 
 @views.route('/api/dashboard/filtered-options', methods=['POST'])
 @login_required
@@ -4773,7 +4819,7 @@ def api_dashboard_filtered_options():
 		format_options = list(set([m.format for m in filtered_matches if m.format]))
 		format_options.sort()
 		filtered_options['Format'] = format_options
-			
+
 		# Decks (p1_subarch)
 		deck_options = list(set([m.p1_subarch for m in filtered_matches if m.p1_subarch]))
 		deck_options.sort()
@@ -4906,7 +4952,7 @@ def apply_dashboard_filters(query, filters):
 		# Filter by format
 		if filters.get('format'):
 			query = query.filter(Match.format == filters['format'])
-		
+
 		# Filter by deck (p1_subarch)
 		if filters.get('deck'):
 			query = query.filter(Match.p1_subarch == filters['deck'])
@@ -4959,7 +5005,7 @@ def apply_dashboard_filters_to_play_query(query, filters):
 		# Filter by format
 		if filters.get('format'):
 			query = query.filter(Match.format == filters['format'])
-		
+
 		# Filter by deck (p1_subarch)
 		if filters.get('deck'):
 			query = query.filter(Match.p1_subarch == filters['deck'])
@@ -4994,7 +5040,7 @@ def apply_dashboard_filters_to_game_query(query, filters):
 		# Filter by format
 		if filters.get('format'):
 			query = query.filter(Match.format == filters['format'])
-		
+
 		# Filter by deck (p1_subarch)
 		if filters.get('deck'):
 			query = query.filter(Match.p1_subarch == filters['deck'])
@@ -5024,6 +5070,11 @@ def generate_match_performance_dashboard(filtered_query, filters):
 	"""Generate match performance dashboard data"""
 	try:
 		matches = filtered_query.all()
+
+		def escape_for_js(text):
+			if not isinstance(text, str):
+				text = str(text)
+			return text.replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"')
 			
 		# Calculate metrics
 		total_matches = len(matches)
@@ -5122,7 +5173,7 @@ def generate_match_performance_dashboard(filtered_query, filters):
 				'headers': ['<center>Format</center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Match Win%</center>'],
 				'height': '214px',
 				'rows': [[
-					sanitize_dashboard_text(row['format']),
+					f"<a href=\"#\" onclick=\"filterByFormat('{escape_for_js(sanitize_dashboard_text(row['format']))}'); return false;\" style=\"color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;\" onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\">{sanitize_dashboard_text(row['format'])}</a>",
 					f"<center>{int(row['wins'])}</center>",
 					f"<center>{int(row['losses'])}</center>",
 					f"<center>{row['win_pct']:.1f}%</center>"
@@ -5205,11 +5256,11 @@ def generate_match_performance_dashboard(filtered_query, filters):
 			
 			# Create table data for the return JSON
 			deck_performance_table = {
-				'title': 'Decks Played',
+				'title': 'Decks Played Against',
 				'headers': ['<center>Deck</center>', '<center>Share</center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Match Win%</center>'],
 				'height': '214px',
 				'rows': [[
-					sanitize_dashboard_text(row['p1_subarch']),
+					f"<a href=\"#\" onclick=\"filterByDeck('{escape_for_js(sanitize_dashboard_text(row['p1_subarch']))}'); return false;\" style=\"color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;\" onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\">{sanitize_dashboard_text(row['p1_subarch'])}</a>",
 					f"<center>{row['wins'] + row['losses']} - ({row['share_pct']:.1f}%)</center>",
 					f"<center>{int(row['wins'])}</center>",
 					f"<center>{int(row['losses'])}</center>",
@@ -5254,7 +5305,7 @@ def generate_match_performance_dashboard(filtered_query, filters):
 				'headers': ['<center>Deck</center>', '<center>Share</center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Match Win%</center>'],
 				'height': '214px',
 				'rows': [[
-					sanitize_dashboard_text(row['p2_subarch']),
+					f"<a href=\"#\" onclick=\"filterByOppDeck('{escape_for_js(sanitize_dashboard_text(row['p2_subarch']))}'); return false;\" style=\"color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;\" onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\">{sanitize_dashboard_text(row['p2_subarch'])}</a>",
 					f"<center>{row['wins'] + row['losses']} - ({row['share_pct']:.1f}%)</center>",
 					f"<center>{int(row['wins'])}</center>",
 					f"<center>{int(row['losses'])}</center>",
@@ -5840,7 +5891,9 @@ def generate_opponent_analysis_dashboard(filtered_query, filters):
 		# Create opponent stats table
 		def escape_for_js(text):
 			"""Escape text for use in JavaScript onclick handlers"""
-			return text.replace("'", "\\'").replace('"', '\\"').replace('\\', '\\\\')
+			if not isinstance(text, str):
+				text = str(text)
+			return text.replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"')
 		
 		opponent_stats_table = {
 			'title': 'Opponent Performance',
@@ -5887,13 +5940,17 @@ def generate_opponent_analysis_dashboard(filtered_query, filters):
 		for match, draft in recent_matches:
 			result_text = match_result(match.p1_wins, match.p2_wins)
 			row_style = get_row_color(result_text)
+			match_format_display = sanitize_dashboard_text(format_match_format(match.format, match.limited_format))
+			match_format_filter_value = sanitize_dashboard_text(match.format)
+			deck_display = sanitize_dashboard_text(match.p1_subarch)
+			opp_deck_display = sanitize_dashboard_text(match.p2_subarch)
 			match_history_table['rows'].append([
 				f"<center>{sanitize_dashboard_text(format_date(match.date))}</center>",
 				f"<center>{sanitize_dashboard_text(match.p2)}</center>",
-				f"<center>{sanitize_dashboard_text(match.p1_subarch)}</center>",
-				f"<center>{sanitize_dashboard_text(match.p2_subarch)}</center>",
+				f"<center><a href=\"#\" onclick=\"filterByDeck('{escape_for_js(deck_display)}'); return false;\" style=\"color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;\" onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\">{deck_display}</a></center>",
+				f"<center><a href=\"#\" onclick=\"filterByOppDeck('{escape_for_js(opp_deck_display)}'); return false;\" style=\"color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;\" onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\">{opp_deck_display}</a></center>",
 				f"<center>{sanitize_dashboard_text(result_text)}</center>",
-				f"<center>{sanitize_dashboard_text(format_match_format(match.format, match.limited_format))}</center>",
+				f"<center><a href=\"#\" onclick=\"filterByFormat('{escape_for_js(match_format_filter_value)}'); return false;\" style=\"color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;\" onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\">{match_format_display}</a></center>",
 				f"<center>{sanitize_dashboard_text(match.match_type)}</center>",
 				row_style  # Add row styling as the 7th element
 			])
@@ -5928,7 +5985,7 @@ def generate_opponent_analysis_dashboard(filtered_query, filters):
 				'headers': ['<center>Deck</center>', '<center>Share</center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Win% Against</center>'],
 				'height': '300px',
 				'rows': [[
-					sanitize_dashboard_text(row['p2_subarch']),
+					f"<a href=\"#\" onclick=\"filterByOppDeck('{escape_for_js(sanitize_dashboard_text(row['p2_subarch']))}'); return false;\" style=\"color: var(--sky-blue); text-decoration: none; font-weight: 600; cursor: pointer;\" onmouseover=\"this.style.textDecoration='underline'\" onmouseout=\"this.style.textDecoration='none'\">{sanitize_dashboard_text(row['p2_subarch'])}</a>",
 					f"<center>{row['wins'] + row['losses']} - ({row['share_pct']:.1f}%)</center>",
 					f"<center>{int(row['wins'])}</center>",
 					f"<center>{int(row['losses'])}</center>",

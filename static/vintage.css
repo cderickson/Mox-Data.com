@@ -1,0 +1,185 @@
+  .filters-sidebar .section-thin-card {
+    margin-bottom: 12px;
+  }
+
+  .filters-sidebar .section-thin-card:last-child {
+    margin-bottom: 0;
+  }
+
+  .vintage-kpi-winner {
+    background: #fff7db;
+    border: 1px solid #f3e2a3;
+  }
+
+  .vintage-kpi-runner-up {
+    background: #f2f4f7;
+    border: 1px solid #d8dde6;
+  }
+
+  .vintage-kpi-trophies {
+    background: #fff7db;
+    border: 1px solid #f3e2a3;
+  }
+
+  .vintage-kpi-runner-up .kpi-value {
+    font-size: 18px;
+  }
+
+  .vintage-kpi-runner-up .kpi-title {
+    font-size: 12px;
+  }
+
+  .vintage-kpi-runner-up .kpi-subtitle {
+    font-size: 11px;
+  }
+
+  .vintage-kpi-unique {
+    margin-top: 16px;
+  }
+
+  .vintage-metrics-body.unique-only #uniquePlayersCard {
+    margin-top: 0;
+  }
+
+  /* Event Explorer-only KPI layout tweaks */
+  .vintage-metrics-body.event-explorer-mode #runnerUpCard {
+    width: 82%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .vintage-metrics-body.event-explorer-mode #uniquePlayersCard {
+    margin-top: 24px;
+  }
+
+  .vintage-metrics-body.player-leaderboard-mode #uniquePlayersCard {
+    margin-top: 24px;
+  }
+
+  .vintage-card-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .vintage-table-mode-select {
+    width: auto;
+    min-width: 150px;
+  }
+
+  .vintage-header-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .dashboard-controls-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    align-items: end;
+  }
+
+  .dashboard-control-column {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .dashboard-control-column .dashboard-type-select,
+  .dashboard-control-column .filter-select {
+    width: 100%;
+  }
+
+  /* Match dropdown focus styling to Dashboard Type (no blue highlight border). */
+  select.filter-select:focus,
+  select.filter-select:focus-visible,
+  select.vintage-table-mode-select:focus,
+  select.vintage-table-mode-select:focus-visible,
+  input[type="date"].filter-select:focus,
+  input[type="date"].filter-select:focus-visible {
+    outline: none;
+    border-color: #ddd;
+    box-shadow: none;
+  }
+
+  .vintage-table-filter-link {
+    color: var(--sky-blue);
+    text-decoration: none;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .vintage-table-filter-link:hover {
+    text-decoration: underline;
+  }
+
+  /* Remove extra vertical whitespace around charts in dashboard cards. */
+  #dashboardResults .section-card-body.section-thin-body {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  #dashboardResults .section-card-body.section-thin-body .chart-canvas-container {
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  #dashboardResults .section-card-body.section-thin-body .chart-canvas-container canvas {
+    display: block;
+    margin: 0;
+  }
+
+  .vintage-heatmap-zoom-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+
+  .vintage-heatmap-zoom-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.58);
+  }
+
+  .vintage-heatmap-zoom-content {
+    position: relative;
+    z-index: 1;
+    width: min(96vw, 1800px);
+    height: auto;
+    max-height: calc(100vh - 32px);
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .vintage-heatmap-zoom-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f8fafc;
+  }
+
+  .vintage-heatmap-zoom-body {
+    flex: 1;
+    overflow: hidden;
+    padding: 12px;
+    background: #fff;
+  }

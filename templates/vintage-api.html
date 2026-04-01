@@ -1,0 +1,368 @@
+{% extends 'base.html' %}
+
+{% block title %}Mox Data - Vintage API Documentation{% endblock %}
+{% block page_title %}Vintage API Documentation{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='vintage-api.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="content-wrapper">
+  <div class="api-docs-container">
+    <div class="api-docs-layout">
+      <div class="api-docs-sidebar">
+        <div class="section-card section-thin-card">
+          <div class="section-card-header">
+            <h2 class="section-card-title">
+              <i class="fas fa-code"></i>
+              API Documentation
+            </h2>
+          </div>
+          <div class="section-card-body section-thin-body">
+            <p>The <strong>Vintage Data API</strong> provides endpoints to retrieve match and event data from the <strong><a href="https://docs.google.com/spreadsheets/d/1wxR3iYna86qrdViwHjUPzHuw6bCNeMLb72M25hpUHYk/" target="_blank">MTGO Vintage Metagame</a></strong> dataset.</p>
+            <ul>
+              <li>Requests are rate-limited to <b>100 per minute</b>.</li>
+              <li>Response size is limited to <b>1000 rows</b> (requests with more than 1000 rows will be <b>paginated</b>).</li>
+              <li>No authentication is required.</li>
+            </ul>
+            <p><strong>Base URL</strong>: <a href="https://api.vintagedata.io/" target="_blank">https://api.vintagedata.io</a></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="api-docs-main">
+    <div class="card collapsible-tab expanded" data-target="logging-errors-examples">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-shield-alt"></i>
+          General
+        </h2>
+        <i class="fas fa-chevron-down"></i>
+      </div>
+      <div class="section-card-content" id="logging-errors-examples">
+      <div class="section-card-body">
+        <h3>Logging &amp; Monitoring</h3>
+        <p>All requests are logged and inserted into the <strong>API Logging Stats</strong> table to track API Endpoint usage statistics.</p>
+        <p>See <strong><a href="{{ url_for('views.vintage_data_dictionary') }}">Data Dictionary</a></strong> for more information.</p>
+
+        <h3>Error Handling</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Status Code</th>
+              <th>Error Type</th>
+              <th>Error Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>400</b></td>
+              <td>Bad Request</td>
+              <td>Invalid query parameters.</td>
+            </tr>
+            <tr>
+              <td><b>404</b></td>
+              <td>Not Found</td>
+              <td>Requested resource does not exist.</td>
+            </tr>
+            <tr>
+              <td><b>500</b></td>
+              <td>Internal Server Error</td>
+              <td>Unexpected server error.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Example Requests</h3>
+        <pre class="api-docs-code"><code class="language-bash">curl -X GET "https://api.vintagedata.io/matches/?start=2024-08-25&amp;end=2024-10-30&amp;page=1"
+curl -X GET "https://api.vintagedata.io/events/?start=2024-08-25&amp;end=2024-10-30&amp;page=1"
+curl -X GET "https://api.vintagedata.io/events/player/IamActuallyLvL1/"
+curl -X GET "https://api.vintagedata.io/load-reports/"</code></pre>
+      </div>
+      </div>
+    </div>
+    
+    <div class="card collapsible-tab api-endpoints-card" data-target="match-endpoints">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-gamepad"></i>
+          Match Endpoints
+        </h2>
+        <i class="fas fa-chevron-down"></i>
+      </div>
+      <div class="section-card-content" id="match-endpoints">
+      <div class="section-card-body">
+        <p class="api-docs-subtitle">Includes root redirect and all match retrieval endpoints.</p>
+
+        <h3>GET /</h3>
+        <p>Redirects to the Project Description page.</p>
+
+        <h3>GET /matches/</h3>
+        <p>Retrieves raw match data.</p>
+        <h4>Query Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>start</b></td><td>String</td><td>Optional</td><td>Start date (YYYY-MM-DD)</td><td>2024-08-25</td></tr>
+            <tr><td><b>end</b></td><td>String</td><td>Optional</td><td>End date (YYYY-MM-DD)</td><td>Current Date</td></tr>
+            <tr><td><b>page</b></td><td>Integer</td><td>Optional</td><td>Page number</td><td>1</td></tr>
+          </tbody>
+        </table>
+
+        <h3>GET /matches/{match_id}/</h3>
+        <p>Retrieves a specific match by its <strong>match_id</strong>.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>match_id</b></td><td>Integer</td><td>Required</td><td>Match ID (11000000000)</td><td>NA</td></tr>
+          </tbody>
+        </table>
+
+        <h3>GET /matches/player/{player_id}/</h3>
+        <p>Retrieves all matches involving a specific player.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>match_id</b></td><td>Integer</td><td>Required</td><td>Match ID (11000000000)</td><td>NA</td></tr>
+          </tbody>
+        </table>
+        <h4>Query Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>start</b></td><td>String</td><td>Optional</td><td>Start date (YYYY-MM-DD)</td><td>2024-08-25</td></tr>
+            <tr><td><b>end</b></td><td>String</td><td>Optional</td><td>End date (YYYY-MM-DD)</td><td>Current Date</td></tr>
+            <tr><td><b>page</b></td><td>Integer</td><td>Optional</td><td>Page number</td><td>1</td></tr>
+          </tbody>
+        </table>
+
+        <h3>GET /matches/event/{event_id}/</h3>
+        <p>Retrieves all matches from a specific event.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>event_id</b></td><td>Integer</td><td>Required</td><td>Event ID (12000000000)</td><td>NA</td></tr>
+          </tbody>
+        </table>
+      </div>
+      </div>
+    </div>
+
+    <div class="card collapsible-tab api-endpoints-card" data-target="event-endpoints">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-trophy"></i>
+          Event Endpoints
+        </h2>
+        <i class="fas fa-chevron-down"></i>
+      </div>
+      <div class="section-card-content" id="event-endpoints">
+      <div class="section-card-body">
+        <h3>GET /events/</h3>
+        <p>Retrieves all events. Returns event details and total number of players per event.</p>
+        <h4>Query Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>start</b></td><td>String</td><td>Optional</td><td>Start date (YYYY-MM-DD)</td><td>2024-08-25</td></tr>
+            <tr><td><b>end</b></td><td>String</td><td>Optional</td><td>End date (YYYY-MM-DD)</td><td>Current Date</td></tr>
+            <tr><td><b>page</b></td><td>Integer</td><td>Optional</td><td>Page number</td><td>1</td></tr>
+          </tbody>
+        </table>
+
+        <h3>GET /events/{event_id}/</h3>
+        <p>Retrieves event details by <strong>event_id</strong>.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>event_id</b></td><td>Integer</td><td>Required</td><td>Event ID (12000000000)</td><td>NA</td></tr>
+          </tbody>
+        </table>
+
+        <h3>GET /events/{event_id}/standings/</h3>
+        <p>Retrieves event standings by <strong>event_id</strong>.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>event_id</b></td><td>Integer</td><td>Required</td><td>Event ID (12000000000)</td><td>NA</td></tr>
+          </tbody>
+        </table>
+        <h4>Query Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>rank</b></td><td>Integer</td><td>Optional</td><td>Search for a player of a specific rank.</td><td>0 (full standings)</td></tr>
+          </tbody>
+        </table>
+
+        <h3>GET /events/{event_id}/player/{P1}/</h3>
+        <p>Retrieves event rank and record for a specific player (<strong>P1</strong>) by <strong>event_id</strong>.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>event_id</b></td><td>Integer</td><td>Required</td><td>Event ID (12000000000)</td><td>NA</td></tr>
+            <tr><td><b>P1</b></td><td>String</td><td>Required</td><td>Player identifier</td><td>NA</td></tr>
+          </tbody>
+        </table>
+
+        <h3>GET /events/player/{P1}/</h3>
+        <p>Retrieves events played by a specific player (P1). Returns a JSON object containing event details, deck details, and win-loss record.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>P1</b></td><td>String</td><td>Required</td><td>Player identifier</td><td>NA</td></tr>
+          </tbody>
+        </table>
+        <h4>Query Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>start</b></td><td>String</td><td>Optional</td><td>Start date (YYYY-MM-DD)</td><td>2024-08-25</td></tr>
+            <tr><td><b>end</b></td><td>String</td><td>Optional</td><td>End date (YYYY-MM-DD)</td><td>Current Date</td></tr>
+            <tr><td><b>page</b></td><td>Integer</td><td>Optional</td><td>Page number</td><td>1</td></tr>
+          </tbody>
+        </table>
+      </div>
+      </div>
+    </div>
+
+    <div class="card collapsible-tab api-endpoints-card" data-target="deck-event-type-endpoints">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-layer-group"></i>
+          Deck and Event Type Endpoints
+        </h2>
+        <i class="fas fa-chevron-down"></i>
+      </div>
+      <div class="section-card-content" id="deck-event-type-endpoints">
+      <div class="section-card-body">
+        <h3>GET /decks/</h3>
+        <p>Retrieves a list of all valid decks.</p>
+
+        <h3>GET /decks/{deck_id}/</h3>
+        <p>Retrieves details of a specific deck by deck_id.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>deck_id</b></td><td>Integer</td><td>Required</td><td>Unique deck identifier (13000000000)</td><td>NA</td></tr>
+          </tbody>
+        </table>
+
+        <h3>GET /event-types/</h3>
+        <p>Retrieves a list of valid event types (e.g. Challenge, Showcase, etc.).</p>
+
+        <h3>GET /event-types/{event_type_id}/</h3>
+        <p>Retrieves details of a specific event type by event_type_id.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>event_type_id</b></td><td>Integer</td><td>Required</td><td>Unique event type identifier (14000000000)</td><td>NA</td></tr>
+          </tbody>
+        </table>
+      </div>
+      </div>
+    </div>
+
+    <div class="card collapsible-tab api-endpoints-card" data-target="load-rejection-endpoints">
+      <div class="section-card-header">
+        <h2 class="section-card-title">
+          <i class="fas fa-file-alt"></i>
+          Load and Rejection Endpoints
+        </h2>
+        <i class="fas fa-chevron-down"></i>
+      </div>
+      <div class="section-card-content" id="load-rejection-endpoints">
+      <div class="section-card-body">
+        <h3>GET /load-reports/</h3>
+        <p>Retrieves a list of all load reports. Load Reports contain statistics such as matches deleted, matches processed, matches skipped, etc.</p>
+
+        <h3>GET /load-reports/{load_rpt_id}/</h3>
+        <p>Retrieves a specific load report using load_rpt_id.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>load_rpt_id</b></td><td>Integer</td><td>Required</td><td>Unique load report identifier (15000000000)</td><td>NA</td></tr>
+          </tbody>
+        </table>
+
+        <h3>GET /event-rejections/</h3>
+        <p>Retrieves a list of all event rejections. Event Rejections will contain the post-processed event data along with a <strong>Rejection Type</strong> and <strong>Rejection Reason Text</strong>.</p>
+
+        <h3>GET /event-rejections/{load_rpt_id}/</h3>
+        <p>Retrieves event rejections for a specific load_rpt_id.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>load_rpt_id</b></td><td>Integer</td><td>Required</td><td>Unique load report identifier (15000000000)</td><td>NA</td></tr>
+          </tbody>
+        </table>
+
+        <h3>GET /match-rejections/</h3>
+        <p>Retrieves a list of all match rejections. Match Rejections will contain the post-processed event data along with a <strong>Rejection Type</strong> and <strong>Rejection Reason Text</strong>.</p>
+
+        <h3>GET /match-rejections/{load_rpt_id}/</h3>
+        <p>Retrieves match rejections for a specific load_rpt_id.</p>
+        <h4>URL Parameter(s):</h4>
+        <table>
+          <thead>
+            <tr><th>Parameter Name</th><th>Data Type</th><th>Requirement</th><th>Description</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>load_rpt_id</b></td><td>Integer</td><td>Required</td><td>Unique load report identifier (15000000000)</td><td>NA</td></tr>
+          </tbody>
+        </table>
+      </div>
+      </div>
+    </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='collapsible.js') }}" defer></script>
+<script src="{{ url_for('static', filename='vintage-api.js') }}"></script>
+{% endblock %}

@@ -3,6 +3,39 @@
 {% block title %}Mox Data - Getting Started{% endblock %}
 {% block page_title %}Getting Started{% endblock %}
 
+{% block extra_css %}
+<style>
+  /* Match API documentation edge spacing on Getting Started cards */
+  .faq-container .getting-started-stack .static-card .section-card-header {
+    padding: 20px 24px 16px 24px;
+  }
+
+  .faq-container .getting-started-stack .collapsible-tab .section-card-header {
+    padding: 12px 24px 16px 24px;
+  }
+
+  .faq-container .getting-started-stack .static-card .section-card-content {
+    padding: 16px 24px;
+  }
+
+  .faq-container .getting-started-stack .collapsible-tab.expanded .section-card-content {
+    padding: 0 24px;
+  }
+
+  /* Match Vintage API collapsible card typography in Getting Started */
+  .faq-container .getting-started-stack .message-box p,
+  .faq-container .getting-started-stack .message-box ul,
+  .faq-container .getting-started-stack .message-box ol {
+    font-size: 13px;
+  }
+
+  .faq-container .getting-started-stack .message-box h4,
+  .faq-container .getting-started-stack .message-box h5 {
+    font-size: 14px;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 
 <div class="content-wrapper">
@@ -17,7 +50,7 @@
           Registration
         </h3>
       </div>
-      <div class="section-card-body" style="padding-top: 12px;">
+      <div class="section-card-body" style="padding: 12px 24px 0 24px;">
         <div class="blue-badge" style="margin-bottom: 8px;">Create your Mox Data account to get started.</div>
       </div>
       <div class="section-card-content">
@@ -47,7 +80,7 @@
         </h3>
         <i class="fas fa-chevron-down"></i>
       </div>
-      <div class="section-card-body" style="padding-top: 12px;">
+      <div class="section-card-body" style="padding: 12px 24px 0 24px;">
         <div class="blue-badge" style="margin-bottom: 8px;">Upload your raw GameLogs and DraftLogs to Mox Data for processing.</div>
       </div>
         <div class="section-card-content" id="gamelogs">
@@ -75,7 +108,7 @@
         </h3>
         <i class="fas fa-chevron-down"></i>
       </div>
-      <div class="section-card-body" style="padding-top: 12px;">
+      <div class="section-card-body" style="padding: 12px 24px 0 24px;">
         <div class="blue-badge" style="margin-bottom: 8px;">Clean and process your data, ensuring it is accurate and complete.</div>
       </div>
         <div class="section-card-content" id="cleaning">
@@ -103,7 +136,7 @@
         </h3>
         <i class="fas fa-chevron-down"></i>
       </div>
-      <div class="section-card-body" style="padding-top: 12px;">
+      <div class="section-card-body" style="padding: 12px 24px 0 24px;">
         <div class="blue-badge" style="margin-bottom: 8px;">Explore your data and view your analytics.</div>
       </div>
         <div class="section-card-content" id="nextsteps">

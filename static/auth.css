@@ -21,6 +21,12 @@
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 15px rgba(0, 0, 0, 0.1);
 }
 
+/* Auth card headers follow global black header standard */
+.auth-container .section-title {
+    color: #000;
+    border-bottom-color: #000;
+}
+
 /* Form groups with enhanced spacing */
 .auth-container .form-group {
     margin-bottom: 24px;

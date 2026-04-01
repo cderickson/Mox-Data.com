@@ -27,14 +27,17 @@
           <div class="filter-group">
             <label class="filter-label">Date Range</label>
             <div class="date-inputs">
-              <input type="date" class="filter-select" id="startDate" name="startDate" placeholder="Start Date">
-              <input type="date" class="filter-select" id="endDate" name="endDate" placeholder="End Date">
+              <input type="date" class="filter-select" id="startDate" name="startDate" placeholder="Start Date" value="{{ dashboard_date1 or '' }}">
+              <input type="date" class="filter-select" id="endDate" name="endDate" placeholder="End Date" value="{{ dashboard_date2 or '' }}">
             </div>
           </div>
 
-          <div class="filter-group">
-            <label class="filter-label" for="cardFilter">Card</label>
-            <select class="filter-select" id="cardFilter" name="card">
+          <div class="filter-group" style="opacity: 0.5; pointer-events: none;">
+            <label class="filter-label" for="cardFilter">
+              Card
+              <span class="card-analysis-indicator" style="color: var(--accent-color); font-size: 0.8em; margin-left: 5px;">(Card Analysis only)</span>
+            </label>
+            <select class="filter-select" id="cardFilter" name="card" disabled>
               <option value="">All Cards</option>
             </select>
           </div>
@@ -52,7 +55,7 @@
               <option value="">All Formats</option>
             </select>
           </div>
-          
+
           <div class="filter-group">
             <label class="filter-label" for="deckFilter">Deck</label>
             <select class="filter-select" id="deckFilter" name="deck">
@@ -266,16 +269,6 @@ function enableCardFilter() {
     cardFilter.disabled = false;
     cardFilterGroup.style.opacity = '1';
     cardFilterGroup.style.pointerEvents = 'auto';
-    
-    // Add a visual indicator that this filter is specific to Card Analysis
-    const label = cardFilterGroup.querySelector('.filter-label');
-    if (label && !label.querySelector('.card-analysis-indicator')) {
-      const indicator = document.createElement('span');
-      indicator.className = 'card-analysis-indicator';
-      indicator.style.cssText = 'color: var(--accent-color); font-size: 0.8em; margin-left: 5px;';
-      indicator.textContent = '(Card Analysis only)';
-      label.appendChild(indicator);
-    }
   }
 }
 
@@ -291,12 +284,6 @@ function disableCardFilter() {
     cardFilter.disabled = true;
     cardFilterGroup.style.opacity = '0.5';
     cardFilterGroup.style.pointerEvents = 'none';
-    
-    // Remove the Card Analysis indicator if it exists
-    const indicator = cardFilterGroup.querySelector('.card-analysis-indicator');
-    if (indicator) {
-      indicator.remove();
-    }
   }
 }
 
@@ -320,7 +307,7 @@ function populateFilterDropdowns(options = null) {
   
   // Populate Format dropdown
   populateDropdown('formatFilter', optionsToUse.Format, 'All Formats', currentValues.format);
-  
+
   // Populate Deck dropdown
   populateDropdown('deckFilter', optionsToUse.Deck, 'All Decks', currentValues.deck);
   
@@ -468,32 +455,7 @@ function applyFilters() {
 }
 
 function filterByOpponent(opponentName) {
-  // Set the opponent filter to the selected opponent
-  const opponentFilter = document.getElementById('opponentFilter');
-  if (opponentFilter) {
-    // First, make sure the opponent is in the dropdown options
-    let optionExists = false;
-    for (let i = 0; i < opponentFilter.options.length; i++) {
-      if (opponentFilter.options[i].value === opponentName) {
-        optionExists = true;
-        break;
-      }
-    }
-    
-    // If the option doesn't exist, add it
-    if (!optionExists) {
-      const newOption = document.createElement('option');
-      newOption.value = opponentName;
-      newOption.textContent = opponentName;
-      opponentFilter.appendChild(newOption);
-    }
-    
-    // Set the filter value
-    opponentFilter.value = opponentName;
-    
-    // Trigger the dashboard refresh
-    generateDashboard();
-  }
+  setSelectFilterValue('opponentFilter', opponentName);
 }
 
 function filterByCard(cardName) {
@@ -531,6 +493,44 @@ function filterByCard(cardName) {
     // Ensure we are generating the current dashboard
     generateDashboard();
   }
+}
+
+function setSelectFilterValue(selectId, value) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+
+  const normalizedValue = String(value || '').trim();
+  if (!normalizedValue) return;
+
+  let optionExists = false;
+  for (let i = 0; i < select.options.length; i++) {
+    if (select.options[i].value === normalizedValue) {
+      optionExists = true;
+      break;
+    }
+  }
+
+  if (!optionExists) {
+    const newOption = document.createElement('option');
+    newOption.value = normalizedValue;
+    newOption.textContent = normalizedValue;
+    select.appendChild(newOption);
+  }
+
+  select.value = normalizedValue;
+  generateDashboard();
+}
+
+function filterByFormat(formatName) {
+  setSelectFilterValue('formatFilter', formatName);
+}
+
+function filterByDeck(deckName) {
+  setSelectFilterValue('deckFilter', deckName);
+}
+
+function filterByOppDeck(deckName) {
+  setSelectFilterValue('oppDeckFilter', deckName);
 }
 
 async function generateDashboard() {
@@ -721,12 +721,19 @@ function renderDashboardContent(dashboardData, dashboardType) {
   // Render each chart in its own individual section-thin-card
   if (dashboardData.charts && dashboardData.charts.length > 0) {
     dashboardData.charts.forEach((chart, chartIdx) => {
+      const isMatchPerformanceRollingChart =
+        dashboardType === 'match-performance' &&
+        String(chart.title || '').trim().toLowerCase() === 'rolling match win rate';
+      const chartCardTitle = isMatchPerformanceRollingChart
+        ? `${chart.title} (Previous 20 Matches)`
+        : chart.title;
+
       content += `
         <div class="section-card section-thin-card">
           <div class="section-card-header">
             <h2 class="section-card-title">
               <i class="fas fa-chart-${chart.type === 'line' ? 'line' : chart.type === 'bar' ? 'bar' : 'pie-chart'}"></i>
-              ${chart.title}
+              ${chartCardTitle}
             </h2>
             ${chart.chartPerspectiveControls ? `
             <div class="dashboard-edit-controls-header">
@@ -902,11 +909,12 @@ function renderDashboardContent(dashboardData, dashboardType) {
   // Add tooltips to all table cells after content is rendered
   setTimeout(() => {
     addDashboardTableTooltips();
+    initializeDashboardTableSorting(dashboardType);
   }, 0);
 
   // Render charts after content is in the DOM
   if (dashboardData.charts && dashboardData.charts.length > 0) {
-    renderCharts(dashboardData.charts);
+    renderCharts(dashboardData.charts, dashboardType);
   }
 }
 
@@ -977,6 +985,157 @@ function addDashboardTableTooltips() {
 // Make function globally accessible for when new data is loaded
 window.addDashboardTableTooltips = addDashboardTableTooltips;
 
+function getDashboardSortableTableConfig(dashboardType, tableTitle) {
+  const normalizedDashboard = String(dashboardType || '').trim().toLowerCase();
+  const normalizedTitle = String(tableTitle || '').trim().toLowerCase();
+
+  if (normalizedDashboard === 'match-performance') {
+    if ([
+      'performance by format',
+      'performance by match type',
+      'decks played against',
+      'decks played',
+      'observed metagame'
+    ].includes(normalizedTitle)) {
+      const prefixNumberColumns = new Set();
+      if (
+        normalizedTitle === 'decks played against' ||
+        normalizedTitle === 'decks played' ||
+        normalizedTitle === 'observed metagame'
+      ) {
+        // Share column format: "N - (X%)" -> sort by N.
+        prefixNumberColumns.add(1);
+      }
+      return { prefixNumberColumns };
+    }
+  }
+
+  if (normalizedDashboard === 'card-analysis') {
+    if (
+      normalizedTitle.startsWith('pre-sideboard card performance') ||
+      normalizedTitle.startsWith('post-sideboard card performance')
+    ) {
+      // Games Cast column format: "N - (X%)" -> sort by N.
+      return { prefixNumberColumns: new Set([1]) };
+    }
+  }
+
+  if (normalizedDashboard === 'opponent-analysis') {
+    if (normalizedTitle === 'opponent performance') {
+      return { prefixNumberColumns: new Set() };
+    }
+    if (normalizedTitle === 'decks played') {
+      // Share column format: "N - (X%)" -> sort by N.
+      return { prefixNumberColumns: new Set([1]) };
+    }
+  }
+
+  return null;
+}
+
+function parseSortableCellValue(cellText, columnIndex, tableConfig) {
+  const rawText = String(cellText || '').trim();
+  const compactText = rawText.replace(/,/g, '');
+  const prefixNumberColumns = tableConfig?.prefixNumberColumns || new Set();
+
+  if (prefixNumberColumns.has(columnIndex)) {
+    const prefixMatch = compactText.match(/^(-?\d+(?:\.\d+)?)\s*-/);
+    if (prefixMatch) return Number(prefixMatch[1]);
+  }
+
+  const percentMatch = compactText.match(/(-?\d+(?:\.\d+)?)\s*%/);
+  if (percentMatch) return Number(percentMatch[1]);
+
+  if (/^-?\d+(?:\.\d+)?$/.test(compactText)) {
+    return Number(compactText);
+  }
+
+  return rawText.toLowerCase();
+}
+
+function compareSortableValues(a, b) {
+  const aIsNumber = typeof a === 'number' && Number.isFinite(a);
+  const bIsNumber = typeof b === 'number' && Number.isFinite(b);
+
+  if (aIsNumber && bIsNumber) return a - b;
+  if (aIsNumber) return -1;
+  if (bIsNumber) return 1;
+
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function renderDashboardSortIndicator(header, direction) {
+  const baseHtml = header.dataset.sortBaseHtml || header.innerHTML;
+  if (!direction) {
+    header.innerHTML = baseHtml;
+    return;
+  }
+
+  const arrow = direction === 'asc' ? '▲' : '▼';
+  if (/<\/center>\s*$/i.test(baseHtml)) {
+    header.innerHTML = baseHtml.replace(
+      /<\/center>\s*$/i,
+      ` <span class="dashboard-sort-indicator" style="display:inline; margin-left:6px;">${arrow}</span></center>`
+    );
+    return;
+  }
+
+  header.innerHTML = `${baseHtml}<span class="dashboard-sort-indicator" style="display:inline; margin-left:6px;">${arrow}</span>`;
+}
+
+function initializeDashboardTableSorting(dashboardType) {
+  const cards = document.querySelectorAll('#dashboardResults .section-card');
+  cards.forEach(card => {
+    const titleElement = card.querySelector('.section-card-header .section-card-title');
+    const tableElement = card.querySelector('.modern-table');
+    const tbody = tableElement ? tableElement.querySelector('tbody') : null;
+    if (!titleElement || !tableElement || !tbody) return;
+
+    const cardTitle = titleElement.textContent.trim();
+    const tableConfig = getDashboardSortableTableConfig(dashboardType, cardTitle);
+    if (!tableConfig) return;
+
+    const headers = tableElement.querySelectorAll('thead th');
+    headers.forEach((header, columnIndex) => {
+      if (header.dataset.sortReady === 'true') return;
+      header.dataset.sortReady = 'true';
+      header.dataset.sortDirection = '';
+      header.dataset.sortBaseHtml = header.innerHTML;
+      header.style.cursor = 'pointer';
+      header.style.userSelect = 'none';
+      header.style.whiteSpace = 'nowrap';
+
+      header.addEventListener('click', () => {
+        const currentDirection = header.dataset.sortDirection === 'asc' ? 'asc' : (header.dataset.sortDirection === 'desc' ? 'desc' : '');
+        const nextDirection = currentDirection === 'asc' ? 'desc' : 'asc';
+        header.dataset.sortDirection = nextDirection;
+
+        headers.forEach(otherHeader => {
+          if (otherHeader !== header) otherHeader.dataset.sortDirection = '';
+          renderDashboardSortIndicator(otherHeader, otherHeader.dataset.sortDirection);
+        });
+
+        renderDashboardSortIndicator(header, nextDirection);
+
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const decoratedRows = rows.map((row, originalIndex) => {
+          const cell = row.children[columnIndex];
+          const value = parseSortableCellValue(cell ? cell.textContent : '', columnIndex, tableConfig);
+          return { row, originalIndex, value };
+        });
+
+        decoratedRows.sort((left, right) => {
+          const base = compareSortableValues(left.value, right.value);
+          if (base !== 0) return nextDirection === 'asc' ? base : -base;
+          return left.originalIndex - right.originalIndex;
+        });
+
+        decoratedRows.forEach(item => tbody.appendChild(item.row));
+      });
+    });
+  });
+}
+
 // Dynamically load Chart.js if not already loaded
 function ensureChartJsLoaded() {
   return new Promise((resolve, reject) => {
@@ -993,7 +1152,7 @@ function ensureChartJsLoaded() {
   });
 }
 
-function renderCharts(charts) {
+function renderCharts(charts, dashboardType = '') {
   ensureChartJsLoaded().then(() => {
     const chartTextColor = '#000';
     if (window.Chart && Chart.defaults) {
@@ -1023,9 +1182,9 @@ function renderCharts(charts) {
 
       const ctx = canvas.getContext('2d');
       const isStacked = !!chart.stacked;
-      const isRollingMatchWinRateChart = (chart.title || '')
-        .toLowerCase()
-        .includes('rolling match win rate');
+      const isRollingMatchWinRateChart =
+        dashboardType === 'match-performance' &&
+        String(chart.title || '').trim().toLowerCase() === 'rolling match win rate';
 
     const datasets = (chart.data?.datasets || []).map((ds, i) => {
       const datasetType = ds.type || chart.type || 'bar';
@@ -1048,7 +1207,16 @@ function renderCharts(charts) {
           spanGaps: true,
           showLine: true
         };
-        return { ...defaults, ...base, ...ds };
+        const mergedLineDataset = { ...defaults, ...base, ...ds };
+        if (isRollingMatchWinRateChart) {
+          // Ensure rolling chart always uses smoothed curves.
+          mergedLineDataset.tension = 0.5;
+          mergedLineDataset.cubicInterpolationMode = 'monotone';
+          mergedLineDataset.pointRadius = 0;
+          mergedLineDataset.pointHoverRadius = 4;
+          mergedLineDataset.fill = false;
+        }
+        return mergedLineDataset;
       }
       // default (bar)
       const defaults = {
@@ -1101,6 +1269,12 @@ function renderCharts(charts) {
       const interactionMode = hasLineDataset ? 'index' : 'nearest';
       const interactionIntersect = hasLineDataset ? false : true;
 
+      const legendPosition = isRollingMatchWinRateChart ? 'top' : 'right';
+      const legendAlign = isRollingMatchWinRateChart ? 'center' : 'center';
+      const legendLabelPadding = isRollingMatchWinRateChart ? 6 : 12;
+      const chartTitleText = isRollingMatchWinRateChart ? '' : (chart.chartTitle || '');
+      const chartSubtitleText = isRollingMatchWinRateChart ? '' : (chart.chartSubtitle || '');
+
       new Chart(ctx, {
         plugins: eventZoomFixPlugin ? [eventZoomFixPlugin] : [],
         type: chart.type || 'bar',
@@ -1111,6 +1285,11 @@ function renderCharts(charts) {
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          layout: {
+            padding: {
+              top: isRollingMatchWinRateChart ? 0 : 0
+            }
+          },
           animation: {
             duration: 750,
             easing: 'easeOutCubic'
@@ -1135,29 +1314,31 @@ function renderCharts(charts) {
           // Fallback for Chart.js v2
           legend: {
             display: (typeof chart.legendDisplay !== 'undefined') ? !!chart.legendDisplay : true,
-            position: 'right',
-            labels: { padding: 12, color: chartTextColor }
+            position: legendPosition,
+            align: legendAlign,
+            labels: { padding: legendLabelPadding, color: chartTextColor }
           },
           plugins: {
             legend: { 
               display: (typeof chart.legendDisplay !== 'undefined') ? !!chart.legendDisplay : true, 
-              position: 'right',
+              position: legendPosition,
+              align: legendAlign,
               labels: {
-                padding: 12,
+                padding: legendLabelPadding,
                 color: chartTextColor,
                 font: { weight: 'normal' }
               }
             },
             title: { 
-              display: !!chart.chartTitle,
-              text: chart.chartTitle || '',
+              display: !!chartTitleText,
+              text: chartTitleText,
               font: { weight: 'bold', size: 18 },
               color: chartTextColor,
               padding: { bottom: 6 }
             },
-            subtitle: chart.chartSubtitle ? {
+            subtitle: chartSubtitleText ? {
               display: true,
-              text: chart.chartSubtitle,
+              text: chartSubtitleText,
               font: { weight: 'normal', size: 14 },
               color: chartTextColor,
               padding: { top: 2, bottom: 24 }

@@ -104,16 +104,6 @@
     border: 1px solid #166534 !important;
 }
 
-.data-dict-container .section-card-title::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: #0039A6;
-}
-
 /* Remove card padding and make it behave like section-card */
 .data-dict-container .card {
     padding: 0 !important;
@@ -145,12 +135,6 @@
     align-items: flex-start !important;
     width: 100% !important;
     box-sizing: border-box !important;
-}
-
-/* Ensure collapsible content can expand to full height */
-.data-dict-container .collapsible-tab.expanded .section-card-content {
-    max-height: none !important;
-    height: auto !important;
 }
 
 /* Override any table height constraints */
@@ -254,41 +238,44 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* Type badge styling - capsule style */
+/* Data type text style (plain, no pill/bubble) */
 .type-badge {
-    display: inline-block;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    display: inline;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font-size: 13px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+    font-family: inherit;
 }
 
-/* Different colors for different data types */
+/* Keep type variants neutral to match vintage data dictionary */
 .type-badge.string {
-    background: #e1f5fe;
-    color: #0277bd;
-    border: 1px solid #b3e5fc;
+    background: transparent;
+    color: inherit;
+    border: none;
 }
 
 .type-badge.integer {
-    background: #f3e5f5;
-    color: #7b1fa2;
-    border: 1px solid #ce93d8;
+    background: transparent;
+    color: inherit;
+    border: none;
 }
 
 .type-badge.datetime {
-    background: #fff3e0;
-    color: #ef6c00;
-    border: 1px solid #ffcc02;
+    background: transparent;
+    color: inherit;
+    border: none;
 }
 
 .type-badge.binary {
-    background: #e8f5e8;
-    color: #2e7d32;
-    border: 1px solid #a5d6a7;
+    background: transparent;
+    color: inherit;
+    border: none;
 }
 
 /* Format cell styling */
