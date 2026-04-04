@@ -120,49 +120,4 @@
 
 <script src="{{ url_for('static', filename='login.js') }}"></script>
 
-<script>
-// Functions for login page functionality
-function showResetModal() {
-  document.getElementById('resetModal').style.display = 'block';
-  document.getElementById('reset_email_input').value = document.getElementById('login_email').value || '';
-}
-
-function hideResetModal() {
-  document.getElementById('resetModal').style.display = 'none';
-}
-
-function sendResetEmail() {
-  const email = document.getElementById('reset_email_input').value;
-  if (!email) {
-    alert('Please enter an email address');
-    return;
-  }
-  
-  document.getElementById('reset_email').value = email;
-  document.getElementById('reset_form').submit();
-}
-
-function sendConfirmationEmail() {
-  const email = document.getElementById('login_email').value;
-  
-  if (!email) {
-    alert('Please enter your email address');
-    return;
-  }
-  
-  document.getElementById('confirm_email').value = email;
-  document.getElementById('confirm_pwd').value = '';
-  document.getElementById('confirm_email_form').submit();
-}
-
-// Close modal when clicking outside
-document.getElementById('resetModal').addEventListener('click', function(e) {
-  if (e.target === this) {
-    hideResetModal();
-  }
-});
-</script>
-
-
-
 {% endblock %}

@@ -5256,7 +5256,7 @@ def generate_match_performance_dashboard(filtered_query, filters):
 			
 			# Create table data for the return JSON
 			deck_performance_table = {
-				'title': 'Decks Played Against',
+				'title': 'Decks Played',
 				'headers': ['<center>Deck</center>', '<center>Share</center>', '<center>Wins</center>', '<center>Losses</center>', '<center>Match Win%</center>'],
 				'height': '214px',
 				'rows': [[

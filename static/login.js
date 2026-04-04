@@ -139,6 +139,15 @@ document.addEventListener('DOMContentLoaded', function() {
     if (emailInput && !emailInput.value) {
         emailInput.focus();
     }
+
+    const resetModal = document.getElementById('resetModal');
+    if (resetModal) {
+        resetModal.addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideResetModal();
+            }
+        });
+    }
 });
 
 // CSS animations for alerts
@@ -182,3 +191,64 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// Functions for login page functionality
+function showResetModal() {
+    const resetModal = document.getElementById('resetModal');
+    const resetEmailInput = document.getElementById('reset_email_input');
+    const loginEmail = document.getElementById('login_email');
+    if (resetModal) {
+        resetModal.style.display = 'block';
+    }
+    if (resetEmailInput && loginEmail) {
+        resetEmailInput.value = loginEmail.value || '';
+    }
+}
+
+function hideResetModal() {
+    const resetModal = document.getElementById('resetModal');
+    if (resetModal) {
+        resetModal.style.display = 'none';
+    }
+}
+
+function sendResetEmail() {
+    const emailInput = document.getElementById('reset_email_input');
+    const hiddenResetEmail = document.getElementById('reset_email');
+    const resetForm = document.getElementById('reset_form');
+    const email = emailInput ? emailInput.value : '';
+    if (!email) {
+        alert('Please enter an email address');
+        return;
+    }
+
+    if (hiddenResetEmail) {
+        hiddenResetEmail.value = email;
+    }
+    if (resetForm) {
+        resetForm.submit();
+    }
+}
+
+function sendConfirmationEmail() {
+    const loginEmail = document.getElementById('login_email');
+    const confirmEmail = document.getElementById('confirm_email');
+    const confirmPwd = document.getElementById('confirm_pwd');
+    const confirmForm = document.getElementById('confirm_email_form');
+    const email = loginEmail ? loginEmail.value : '';
+
+    if (!email) {
+        alert('Please enter your email address');
+        return;
+    }
+
+    if (confirmEmail) {
+        confirmEmail.value = email;
+    }
+    if (confirmPwd) {
+        confirmPwd.value = '';
+    }
+    if (confirmForm) {
+        confirmForm.submit();
+    }
+}

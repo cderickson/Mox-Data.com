@@ -1215,7 +1215,6 @@ Blessed Hippogriff // Tyr's Blessing
 Bloomvine Regent // Claim Territory
 Bonecrusher Giant // Stomp
 Bramble Familiar // Fetch Quest
-Brazen Borrower // Petty Theft
 Brightcap Badger // Fungus Frolic
 Callous Sell-Sword // Burn Together
 Cheeky House-Mouse // Squeak By
@@ -1230,7 +1229,6 @@ Devouring Sugarmaw // Have for Dinner
 Dirgur Island Dragon // Skimming Strike
 Disruptive Stormbrood // Petty Revenge
 Dread Linnorm // Scale Deflection
-Elusive Otter // Grove's Bounty
 Embereth Shieldbreaker // Battle Display
 Emerald Dragon // Dissonant Wave
 Ettercap // Web Shot

@@ -1719,7 +1719,7 @@ table tbody tr:last-child td {
     }
     
     .page-title {
-        font-size: 18px;
+        font-size: 18px !important;
     }
     
     .main-content {
@@ -1746,10 +1746,6 @@ table tbody tr:last-child td {
         display: none;
     }
     
-    .nav-text {
-        display: none;
-    }
-    
     .auth-btn .nav-text {
         display: none;
     }
@@ -1762,6 +1758,28 @@ table tbody tr:last-child td {
         margin-right: 0;
         width: 12px;
         font-size: 11px;
+    }
+
+    .home-banner-overlay {
+        left: 8%;
+        right: 8%;
+        text-align: left;
+    }
+
+    .home-banner-title {
+        font-size: 28px;
+        padding-bottom: 6px;
+    }
+
+    .home-banner-subtitle {
+        font-size: 15px;
+        margin: 8px 0 12px;
+    }
+
+    .home-banner-cta {
+        min-width: 170px;
+        padding: 10px 14px;
+        font-size: 13px;
     }
 }
 
@@ -1790,7 +1808,7 @@ table tbody tr:last-child td {
     }
     
     .page-title {
-        font-size: 16px;
+        font-size: 14px !important;
     }
     
     .main-content {
@@ -1815,6 +1833,25 @@ table tbody tr:last-child td {
     .btn-secondary {
         padding: 10px 16px;
         font-size: 13px;
+    }
+
+    .home-banner-overlay {
+        left: 6%;
+        right: 6%;
+    }
+
+    .home-banner-title {
+        font-size: 23px;
+    }
+
+    .home-banner-subtitle {
+        font-size: 13px;
+    }
+
+    .home-banner-cta {
+        min-width: 150px;
+        font-size: 12px;
+        padding: 8px 12px;
     }
 }
 
@@ -2233,12 +2270,14 @@ table tbody tr:last-child td {
 @media (max-width: 1240px) {
     .faq-container {
         margin: 0 20px;
+        width: auto;
     }
 }
 
 @media (max-width: 768px) {
     .faq-container {
         margin: 0 16px;
+        width: auto;
         max-width: none;
     }
 }

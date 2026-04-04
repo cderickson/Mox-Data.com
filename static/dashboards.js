@@ -1,0 +1,1108 @@
+// Dashboard functionality
+let filterOptions = {};
+let isUpdatingFilters = false; // Prevent recursive updates
+
+// Load filter options on page load
+document.addEventListener('DOMContentLoaded', function() {
+  loadFilterOptions().then(() => {
+    setupDashboardTypeFiltering();
+    generateDashboard();
+  });
+  setupFilterEventListeners();
+});
+
+async function loadFilterOptions() {
+  try {
+    const response = await fetch('/filter_options', {
+      method: 'GET',
+      headers: {
+        'X-Requested-By': 'MTGO-Tracker'
+      }
+    });
+
+    if (response.ok) {
+      filterOptions = await response.json();
+      populateFilterDropdowns();
+    } else {
+      console.error('Failed to load filter options');
+    }
+  } catch (error) {
+    console.error('Error loading filter options:', error);
+  }
+}
+
+function setupFilterEventListeners() {
+  const filterElements = ['cardFilter', 'opponentFilter', 'formatFilter', 'deckFilter', 'oppDeckFilter'];
+
+  filterElements.forEach(elementId => {
+    const element = document.getElementById(elementId);
+    if (element) {
+      element.addEventListener('change', function() {
+        if (!isUpdatingFilters) {
+          updateCascadingFilters();
+        }
+      });
+    }
+  });
+
+  const dateElements = ['startDate', 'endDate'];
+  dateElements.forEach(elementId => {
+    const element = document.getElementById(elementId);
+    if (element) {
+      element.addEventListener('change', function() {
+        if (!isUpdatingFilters) {
+          updateCascadingFilters();
+        }
+      });
+    }
+  });
+}
+
+function setupDashboardTypeFiltering() {
+  const dashboardTypeElement = document.getElementById('dashboardType');
+  if (dashboardTypeElement) {
+    dashboardTypeElement.addEventListener('change', function() {
+      handleDashboardTypeChange(this.value);
+    });
+    handleDashboardTypeChange(dashboardTypeElement.value);
+  }
+}
+
+function handleDashboardTypeChange(dashboardType) {
+  const cardFilter = document.getElementById('cardFilter');
+  const cardFilterGroup = cardFilter ? cardFilter.closest('.filter-group') : null;
+
+  if (!cardFilter || !cardFilterGroup) return;
+
+  if (dashboardType === 'card-analysis') {
+    enableCardFilter();
+  } else {
+    disableCardFilter();
+  }
+}
+
+function enableCardFilter() {
+  const cardFilter = document.getElementById('cardFilter');
+  const cardFilterGroup = cardFilter ? cardFilter.closest('.filter-group') : null;
+
+  if (cardFilter && cardFilterGroup) {
+    cardFilter.disabled = false;
+    cardFilterGroup.style.opacity = '1';
+    cardFilterGroup.style.pointerEvents = 'auto';
+  }
+}
+
+function disableCardFilter() {
+  const cardFilter = document.getElementById('cardFilter');
+  const cardFilterGroup = cardFilter ? cardFilter.closest('.filter-group') : null;
+
+  if (cardFilter && cardFilterGroup) {
+    cardFilter.value = '';
+    cardFilter.disabled = true;
+    cardFilterGroup.style.opacity = '0.5';
+    cardFilterGroup.style.pointerEvents = 'none';
+  }
+}
+
+function populateFilterDropdowns(options = null) {
+  const optionsToUse = options || filterOptions;
+
+  const currentValues = {
+    card: document.getElementById('cardFilter').value,
+    opponent: document.getElementById('opponentFilter').value,
+    format: document.getElementById('formatFilter').value,
+    deck: document.getElementById('deckFilter').value,
+    oppDeck: document.getElementById('oppDeckFilter').value
+  };
+
+  populateDropdown('cardFilter', optionsToUse.Card, 'All Cards', currentValues.card);
+  populateDropdown('opponentFilter', optionsToUse.Opponent, 'All Opponents', currentValues.opponent);
+  populateDropdown('formatFilter', optionsToUse.Format, 'All Formats', currentValues.format);
+  populateDropdown('deckFilter', optionsToUse.Deck, 'All Decks', currentValues.deck);
+  populateDropdown('oppDeckFilter', optionsToUse['Opp. Deck'], 'All Opp. Decks', currentValues.oppDeck);
+
+  if (optionsToUse.Date1 && !document.getElementById('startDate').value) {
+    document.getElementById('startDate').value = optionsToUse.Date1;
+  }
+  if (optionsToUse.Date2 && !document.getElementById('endDate').value) {
+    document.getElementById('endDate').value = optionsToUse.Date2;
+  }
+}
+
+function populateDropdown(elementId, optionsList, defaultText, currentValue = '') {
+  const selectElement = document.getElementById(elementId);
+  if (!selectElement) return;
+
+  while (selectElement.children.length > 1) {
+    selectElement.removeChild(selectElement.lastChild);
+  }
+
+  if (selectElement.firstElementChild) {
+    selectElement.firstElementChild.textContent = defaultText;
+  }
+
+  if (optionsList && optionsList.length > 0) {
+    optionsList.forEach(item => {
+      const option = document.createElement('option');
+      option.value = item;
+      option.textContent = item;
+      if (item === currentValue) {
+        option.selected = true;
+      }
+      selectElement.appendChild(option);
+    });
+  }
+
+  if (currentValue && optionsList && !optionsList.includes(currentValue)) {
+    selectElement.value = '';
+  }
+}
+
+async function updateCascadingFilters() {
+  if (isUpdatingFilters) return;
+
+  try {
+    isUpdatingFilters = true;
+    const currentFilters = getCurrentFilterValues();
+
+    const response = await fetch('/api/dashboard/filtered-options', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-By': 'MTGO-Tracker'
+      },
+      body: JSON.stringify({ filters: currentFilters })
+    });
+
+    if (response.ok) {
+      const filteredOptions = await response.json();
+      populateFilterDropdowns(filteredOptions);
+    } else {
+      console.error('Failed to load filtered options');
+    }
+  } catch (error) {
+    console.error('Error updating cascading filters:', error);
+  } finally {
+    isUpdatingFilters = false;
+  }
+}
+
+function getCurrentFilterValues() {
+  const perspectiveInput = document.getElementById('perspectiveFilter');
+  const opponentThresholdInput = document.getElementById('opponentThresholdFilter');
+  const heroMullsInput = document.getElementById('heroMullsFilter');
+  const oppMullsInput = document.getElementById('oppMullsFilter');
+  const cardFilter = document.getElementById('cardFilter');
+
+  return {
+    card: (cardFilter && !cardFilter.disabled) ? cardFilter.value : '',
+    opponent: document.getElementById('opponentFilter').value,
+    format: document.getElementById('formatFilter').value,
+    deck: document.getElementById('deckFilter').value,
+    oppDeck: document.getElementById('oppDeckFilter').value,
+    startDate: document.getElementById('startDate').value,
+    endDate: document.getElementById('endDate').value,
+    perspective: perspectiveInput ? perspectiveInput.value : 'hero',
+    opponentThreshold: opponentThresholdInput ? opponentThresholdInput.value : '1',
+    heroMulls: heroMullsInput ? heroMullsInput.value : '0',
+    oppMulls: oppMullsInput ? oppMullsInput.value : '0'
+  };
+}
+
+function clearFilters() {
+  isUpdatingFilters = true;
+  document.getElementById('dashboardFilters').reset();
+
+  if (filterOptions.Date1) {
+    document.getElementById('startDate').value = filterOptions.Date1;
+  }
+  if (filterOptions.Date2) {
+    document.getElementById('endDate').value = filterOptions.Date2;
+  }
+
+  const perspectiveInput = document.getElementById('perspectiveFilter');
+  if (perspectiveInput) {
+    perspectiveInput.value = 'hero';
+  }
+
+  populateFilterDropdowns(filterOptions);
+
+  const dashboardType = document.getElementById('dashboardType').value;
+  handleDashboardTypeChange(dashboardType);
+
+  isUpdatingFilters = false;
+  generateDashboard();
+}
+
+function applyFilters() {
+  const dashboardType = document.getElementById('dashboardType').value;
+  if (dashboardType) {
+    generateDashboard();
+  }
+}
+
+function filterByOpponent(opponentName) {
+  setSelectFilterValue('opponentFilter', opponentName);
+}
+
+function filterByCard(cardName) {
+  const cardFilter = document.getElementById('cardFilter');
+  if (cardFilter) {
+    let optionExists = false;
+    for (let i = 0; i < cardFilter.options.length; i++) {
+      if (cardFilter.options[i].value === cardName) {
+        optionExists = true;
+        break;
+      }
+    }
+
+    if (!optionExists) {
+      const newOption = document.createElement('option');
+      newOption.value = cardName;
+      newOption.textContent = cardName;
+      cardFilter.appendChild(newOption);
+    }
+
+    if (cardFilter.disabled) {
+      cardFilter.disabled = false;
+      const cardFilterGroup = cardFilter.closest('.filter-group');
+      if (cardFilterGroup) {
+        cardFilterGroup.style.opacity = '1';
+        cardFilterGroup.style.pointerEvents = 'auto';
+      }
+    }
+
+    cardFilter.value = cardName;
+    generateDashboard();
+  }
+}
+
+function setSelectFilterValue(selectId, value) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+
+  const normalizedValue = String(value || '').trim();
+  if (!normalizedValue) return;
+
+  let optionExists = false;
+  for (let i = 0; i < select.options.length; i++) {
+    if (select.options[i].value === normalizedValue) {
+      optionExists = true;
+      break;
+    }
+  }
+
+  if (!optionExists) {
+    const newOption = document.createElement('option');
+    newOption.value = normalizedValue;
+    newOption.textContent = normalizedValue;
+    select.appendChild(newOption);
+  }
+
+  select.value = normalizedValue;
+  generateDashboard();
+}
+
+function filterByFormat(formatName) {
+  setSelectFilterValue('formatFilter', formatName);
+}
+
+function filterByDeck(deckName) {
+  setSelectFilterValue('deckFilter', deckName);
+}
+
+function filterByOppDeck(deckName) {
+  setSelectFilterValue('oppDeckFilter', deckName);
+}
+
+async function generateDashboard() {
+  const dashboardType = document.getElementById('dashboardType').value;
+
+  if (!dashboardType) {
+    alert('Please select a dashboard type first.');
+    return;
+  }
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('dashboardResults').style.display = 'none';
+  document.getElementById('loadingState').style.display = 'block';
+
+  const filters = getCurrentFilterValues();
+
+  try {
+    const response = await fetch('/api/dashboard/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-By': 'MTGO-Tracker'
+      },
+      body: JSON.stringify({
+        dashboard_type: dashboardType,
+        filters: filters
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to generate dashboard: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json();
+
+    if (result.success) {
+      renderDashboardContent(result.data, dashboardType);
+    } else {
+      throw new Error(result.error || 'Unknown error occurred');
+    }
+  } catch (error) {
+    console.error('Error generating dashboard:', error);
+    showDashboardError(error.message, 'generateDashboard()');
+  }
+}
+
+function showDashboardError(message, retryHandler = 'generateDashboard()') {
+  const loadingState = document.getElementById('loadingState');
+  const emptyState = document.getElementById('emptyState');
+  const resultsDiv = document.getElementById('dashboardResults');
+  if (loadingState) loadingState.style.display = 'none';
+  if (emptyState) emptyState.style.display = 'none';
+  if (resultsDiv) {
+    resultsDiv.innerHTML = `
+      <div>
+        <i class="fas fa-exclamation-triangle"></i>
+        <h3>Error Generating Dashboard</h3>
+        <p>Failed to load dashboard data: ${message || 'Unknown error'}</p>
+        <button type="button" class="button secondary" onclick="${retryHandler}">
+          <i class="fas fa-redo"></i>
+          Try Again
+        </button>
+      </div>
+    `;
+    resultsDiv.style.display = 'block';
+  }
+}
+
+function renderDashboardContent(dashboardData, dashboardType) {
+  const resultsDiv = document.getElementById('dashboardResults');
+  document.getElementById('loadingState').style.display = 'none';
+
+  const titles = {
+    'match-performance': 'Match Performance Dashboard',
+    'card-analysis': 'Card Analysis Dashboard',
+    'opponent-analysis': 'Opponent Analysis Dashboard',
+    'game-data': 'Game Statistics Dashboard'
+  };
+
+  let titleContent = '';
+  if (dashboardType === 'card-analysis') {
+    const currentPerspective = getCurrentFilterValues().perspective || 'hero';
+    const heroActive = currentPerspective === 'hero';
+    const opponentsActive = currentPerspective === 'opponents';
+
+    titleContent = `
+      <h2 class="section-card-title">
+        <i class="fas fa-chart-bar"></i>
+        ${titles[dashboardType] || 'Dashboard'}
+      </h2>
+      <div class="dashboard-edit-controls-header">
+        <button type="button" class="perspective-button ${heroActive ? 'active' : ''}" id="perspective-hero" onclick="setPerspective('hero')">
+          <i class="fas fa-user"></i>
+          Hero
+        </button>
+        <button type="button" class="perspective-button ${opponentsActive ? 'active' : ''}" id="perspective-opponents" onclick="setPerspective('opponents')">
+          <i class="fas fa-users"></i>
+          Opponents
+        </button>
+      </div>
+    `;
+  } else if (dashboardType === 'opponent-analysis') {
+    const currentThreshold = getCurrentFilterValues().opponentThreshold || '1';
+
+    titleContent = `
+      <h2 class="section-card-title">
+        <i class="fas fa-chart-bar"></i>
+        ${titles[dashboardType] || 'Dashboard'}
+      </h2>
+      <div class="dashboard-edit-controls-header">
+        <div class="dashboard-selector">
+          <label for="opponentThresholdFilter"><strong>Min Matches:</strong></label>
+          <input type="number" class="dashboard-type-select mulls-input" id="opponentThresholdFilter" value="${currentThreshold}" min="1" max="100"
+            onchange="generateDashboard();"
+          />
+        </div>
+      </div>
+    `;
+  } else if (dashboardType === 'game-data') {
+    const currentHeroMulls = getCurrentFilterValues().heroMulls || '0';
+    const currentOppMulls = getCurrentFilterValues().oppMulls || '0';
+
+    titleContent = `
+      <h2 class="section-card-title">
+        <i class="fas fa-chart-bar"></i>
+        ${titles[dashboardType] || 'Dashboard'}
+      </h2>
+      <div class="dashboard-edit-controls-header">
+        <div class="dashboard-selector">
+          <label for="heroMullsFilter"><strong>Hero Mulls:</strong></label>
+          <input type="number" class="dashboard-type-select mulls-input" id="heroMullsFilter" value="${currentHeroMulls}" min="0" max="10"
+            onchange="generateDashboard();"
+          />
+          <label for="oppMullsFilter"><strong>Opp. Mulls:</strong></label>
+          <input type="number" class="dashboard-type-select mulls-input" id="oppMullsFilter" value="${currentOppMulls}" min="0" max="10"
+            onchange="generateDashboard();"
+          />
+        </div>
+      </div>
+    `;
+  }
+
+  let content = '';
+
+  if (dashboardData.metrics && dashboardData.metrics.length > 0) {
+    content += `
+      <div class="section-card section-thin-card">
+        <div class="section-card-header">
+          ${titleContent || `
+          <h2 class="section-card-title">
+            <i class="fas fa-chart-bar"></i>
+            ${titles[dashboardType] || 'Dashboard'}
+          </h2>
+          `}
+        </div>
+        <div class="section-card-body section-thin-body">
+          <div class="dashboard-metrics-grid">
+    `;
+
+    dashboardData.metrics.forEach(metric => {
+      content += `
+        <div class="dashboard-kpi-card">
+          <div class="kpi-title">${metric.title}</div>
+          <div class="kpi-value">${metric.value}</div>
+          <div class="kpi-subtitle">${metric.subtitle}</div>
+        </div>
+      `;
+    });
+
+    content += `
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  if (dashboardData.charts && dashboardData.charts.length > 0) {
+    dashboardData.charts.forEach((chart, chartIdx) => {
+      const isMatchPerformanceRollingChart =
+        dashboardType === 'match-performance' &&
+        String(chart.title || '').trim().toLowerCase() === 'rolling match win rate';
+      const chartCardTitle = isMatchPerformanceRollingChart
+        ? `${chart.title} (Previous 20 Matches)`
+        : chart.title;
+
+      content += `
+        <div class="section-card section-thin-card">
+          <div class="section-card-header">
+            <h2 class="section-card-title">
+              <i class="fas fa-chart-${chart.type === 'line' ? 'line' : chart.type === 'bar' ? 'bar' : 'pie-chart'}"></i>
+              ${chartCardTitle}
+            </h2>
+            ${chart.chartPerspectiveControls ? `
+            <div class="dashboard-edit-controls-header">
+              <button type="button" class="perspective-button ${chart.chartCastingApplied === 'hero' ? 'active' : ''}" id="chart-persp-hero-${chartIdx}" onclick="setChartCasting('${chartIdx}', 'hero')">
+                <i class="fas fa-user"></i> Hero
+              </button>
+              <button type="button" class="perspective-button ${chart.chartCastingApplied === 'opponents' ? 'active' : ''}" id="chart-persp-opponents-${chartIdx}" onclick="setChartCasting('${chartIdx}', 'opponents')">
+                <i class="fas fa-users"></i> Opponents
+              </button>
+            </div>
+            ` : ''}
+          </div>
+          <div class="section-card-body section-thin-body">
+            <div class="chart-row" style="display: flex; gap: 16px; align-items: stretch;">
+              ${chart.isPlaceholder ? `
+                <div class="chart-canvas-container" style="height: 340px; flex: 1 1 auto; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--border-color, rgba(0,0,0,0.12)); border-radius: 8px; background: var(--bg-elevated, transparent); color: var(--fg-muted, #666);">
+                  <div style="text-align: center;">
+                    <div style="font-size: 36px; margin-bottom: 8px; opacity: 0.8;"><i class="fas fa-magic"></i></div>
+                    <div style="font-weight: 600; margin-bottom: 4px;">Select a Card to View Analysis</div>
+                    <div style="font-size: 13px;">Use the Card filter on the left or select a card in the tables below.</div>
+                  </div>
+                </div>
+              ` : `
+                <div class="chart-canvas-container" style="height: 340px; flex: 1 1 auto;">
+                  <canvas id="chart-canvas-${chartIdx}"></canvas>
+                </div>
+              `}
+              ${chart.imageUrl ? `
+              <div class="chart-image-container" style="flex: 0 0 240px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                <img src="${chart.imageUrl}" alt="${chart.cardName || 'Card Image'}" style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.12);" />
+                <div style="margin-top: 6px; font-size: 12px; color: var(--fg-muted);">Images courtesy of <a href="https://scryfall.com" target="_blank" rel="noopener" style="color: inherit; text-decoration: underline;">Scryfall</a></div>
+              </div>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  if (dashboardData.table_grids && dashboardData.table_grids.length > 0) {
+    dashboardData.table_grids.forEach(grid => {
+      if (grid.type === '2x2') {
+        content += '<div class="dashboard-table-grid">';
+        grid.grid.forEach(row => {
+          row.forEach(table => {
+            const tableHeight = table.height || '214px';
+
+            content += `
+              <div class="section-card section-thin-card">
+                <div class="section-card-header">
+                  <h2 class="section-card-title">
+                    <i class="fas fa-table"></i>
+                    ${table.title}
+                  </h2>
+                </div>
+                <div class="section-card-body section-thin-body table-body-no-padding">
+                  <div class="table-wrapper" style="height: ${tableHeight}">
+                    <table class="modern-table">
+                      <thead>
+                        <tr>
+                          ${table.headers.map((header, index) => {
+                            const width = table.columnWidths && table.columnWidths[index] ? ` style="width: ${table.columnWidths[index]}"` : '';
+                            return `<th${width}>${header}</th>`;
+                          }).join('')}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${table.rows.map(rowData => {
+                          const hasCustomStyle = rowData.length > table.headers.length && typeof rowData[rowData.length - 1] === 'string' && rowData[rowData.length - 1].includes('background-color');
+                          const customStyle = hasCustomStyle ? rowData[rowData.length - 1] : '';
+                          const dataCells = hasCustomStyle ? rowData.slice(0, -1) : rowData;
+                          return `
+                            <tr${customStyle ? ` style="${customStyle}"` : ''}>
+                              ${dataCells.map(cell => `<td>${cell}</td>`).join('')}
+                            </tr>
+                          `;
+                        }).join('')}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            `;
+          });
+        });
+        content += '</div>';
+      }
+    });
+  }
+
+  if (dashboardData.tables && dashboardData.tables.length > 0) {
+    dashboardData.tables.forEach(table => {
+      const tableHeight = table.height || 'auto';
+      const useFixedHeight = tableHeight !== 'auto';
+
+      content += `
+        <div class="section-card section-thin-card">
+          <div class="section-card-header">
+            <h2 class="section-card-title">
+              <i class="fas fa-list"></i>
+              ${table.title}
+            </h2>
+          </div>
+          <div class="section-card-body section-thin-body table-body-no-padding">
+            <div class="table-wrapper ${table.cssClass || ''}" ${useFixedHeight ? `style="height: ${tableHeight}"` : ''}>
+              <table class="modern-table">
+                <thead>
+                  <tr>
+                    ${table.headers.map((header, index) => {
+                      const width = table.columnWidths && table.columnWidths[index] ? ` style="width: ${table.columnWidths[index]}"` : '';
+                      return `<th${width}>${header}</th>`;
+                    }).join('')}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${table.rows.map(rowData => {
+                    const hasCustomStyle = rowData.length > table.headers.length && typeof rowData[rowData.length - 1] === 'string' && rowData[rowData.length - 1].includes('background-color');
+                    const customStyle = hasCustomStyle ? rowData[rowData.length - 1] : '';
+                    const dataCells = hasCustomStyle ? rowData.slice(0, -1) : rowData;
+                    return `
+                      <tr${customStyle ? ` style="${customStyle}"` : ''}>
+                        ${dataCells.map(cell => `<td>${cell}</td>`).join('')}
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  if (!dashboardData.metrics?.length && !dashboardData.charts?.length && !dashboardData.tables?.length && !dashboardData.table_grids?.length) {
+    content += `
+      <div class="section-card section-thin-card">
+        <div class="section-card-header">
+          <h2 class="section-card-title">
+            <i class="fas fa-info-circle"></i>
+            No Data Available
+          </h2>
+        </div>
+        <div class="section-card-body section-thin-body">
+          <div class="empty-state-content">
+            <i class="fas fa-info-circle"></i>
+            <h3>No Data Available</h3>
+            <p>No data matches your current filters. Try adjusting your filter criteria.</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  resultsDiv.innerHTML = content;
+  resultsDiv.style.display = 'block';
+
+  setTimeout(() => {
+    addDashboardTableTooltips();
+    initializeDashboardTableSorting(dashboardType);
+  }, 0);
+
+  if (dashboardData.charts && dashboardData.charts.length > 0) {
+    renderCharts(dashboardData.charts, dashboardType);
+  }
+}
+
+function setPerspective(perspective) {
+  const perspectiveInput = document.getElementById('perspectiveFilter');
+  if (!perspectiveInput) {
+    const hiddenInput = document.createElement('input');
+    hiddenInput.type = 'hidden';
+    hiddenInput.id = 'perspectiveFilter';
+    hiddenInput.name = 'perspective';
+    hiddenInput.value = perspective;
+
+    const form = document.getElementById('dashboardFilters');
+    if (form) {
+      form.appendChild(hiddenInput);
+    } else {
+      console.error('Dashboard filters form not found');
+      return;
+    }
+  } else {
+    perspectiveInput.value = perspective;
+  }
+
+  generateDashboard();
+}
+
+function addDashboardTableTooltips() {
+  const tableCells = document.querySelectorAll('#dashboardResults .modern-table td');
+  tableCells.forEach(cell => {
+    const textContent = cell.textContent.trim();
+    if (textContent && textContent.length > 0) {
+      cell.removeAttribute('title');
+      cell.title = textContent;
+      cell.style.cursor = 'help';
+    }
+  });
+
+  const tableHeaders = document.querySelectorAll('#dashboardResults .modern-table th');
+  tableHeaders.forEach(header => {
+    const textContent = header.textContent.trim();
+    if (textContent && textContent.length > 0) {
+      header.removeAttribute('title');
+      header.title = textContent;
+      header.style.cursor = 'help';
+    }
+  });
+}
+
+window.addDashboardTableTooltips = addDashboardTableTooltips;
+
+function getDashboardSortableTableConfig(dashboardType, tableTitle) {
+  const normalizedDashboard = String(dashboardType || '').trim().toLowerCase();
+  const normalizedTitle = String(tableTitle || '').trim().toLowerCase();
+
+  if (normalizedDashboard === 'match-performance') {
+    if (['performance by format', 'performance by match type', 'decks played against', 'decks played', 'observed metagame'].includes(normalizedTitle)) {
+      const prefixNumberColumns = new Set();
+      if (normalizedTitle === 'decks played against' || normalizedTitle === 'decks played' || normalizedTitle === 'observed metagame') {
+        prefixNumberColumns.add(1);
+      }
+      return { prefixNumberColumns };
+    }
+  }
+
+  if (normalizedDashboard === 'card-analysis') {
+    if (normalizedTitle.startsWith('pre-sideboard card performance') || normalizedTitle.startsWith('post-sideboard card performance')) {
+      return { prefixNumberColumns: new Set([1]) };
+    }
+  }
+
+  if (normalizedDashboard === 'opponent-analysis') {
+    if (normalizedTitle === 'opponent performance') {
+      return { prefixNumberColumns: new Set() };
+    }
+    if (normalizedTitle === 'decks played') {
+      return { prefixNumberColumns: new Set([1]) };
+    }
+  }
+
+  return null;
+}
+
+function parseSortableCellValue(cellText, columnIndex, tableConfig) {
+  const rawText = String(cellText || '').trim();
+  const compactText = rawText.replace(/,/g, '');
+  const prefixNumberColumns = tableConfig?.prefixNumberColumns || new Set();
+
+  if (prefixNumberColumns.has(columnIndex)) {
+    const prefixMatch = compactText.match(/^(-?\d+(?:\.\d+)?)\s*-/);
+    if (prefixMatch) return Number(prefixMatch[1]);
+  }
+
+  const percentMatch = compactText.match(/(-?\d+(?:\.\d+)?)\s*%/);
+  if (percentMatch) return Number(percentMatch[1]);
+
+  if (/^-?\d+(?:\.\d+)?$/.test(compactText)) {
+    return Number(compactText);
+  }
+
+  return rawText.toLowerCase();
+}
+
+function compareSortableValues(a, b) {
+  const aIsNumber = typeof a === 'number' && Number.isFinite(a);
+  const bIsNumber = typeof b === 'number' && Number.isFinite(b);
+
+  if (aIsNumber && bIsNumber) return a - b;
+  if (aIsNumber) return -1;
+  if (bIsNumber) return 1;
+
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function renderDashboardSortIndicator(header, direction) {
+  const baseHtml = header.dataset.sortBaseHtml || header.innerHTML;
+  if (!direction) {
+    header.innerHTML = baseHtml;
+    return;
+  }
+
+  const arrow = direction === 'asc' ? '▲' : '▼';
+  if (/<\/center>\s*$/i.test(baseHtml)) {
+    header.innerHTML = baseHtml.replace(/<\/center>\s*$/i, ` <span class="dashboard-sort-indicator" style="display:inline; margin-left:6px;">${arrow}</span></center>`);
+    return;
+  }
+
+  header.innerHTML = `${baseHtml}<span class="dashboard-sort-indicator" style="display:inline; margin-left:6px;">${arrow}</span>`;
+}
+
+function initializeDashboardTableSorting(dashboardType) {
+  const cards = document.querySelectorAll('#dashboardResults .section-card');
+  cards.forEach(card => {
+    const titleElement = card.querySelector('.section-card-header .section-card-title');
+    const tableElement = card.querySelector('.modern-table');
+    const tbody = tableElement ? tableElement.querySelector('tbody') : null;
+    if (!titleElement || !tableElement || !tbody) return;
+
+    const cardTitle = titleElement.textContent.trim();
+    const tableConfig = getDashboardSortableTableConfig(dashboardType, cardTitle);
+    if (!tableConfig) return;
+
+    const headers = tableElement.querySelectorAll('thead th');
+    headers.forEach((header, columnIndex) => {
+      if (header.dataset.sortReady === 'true') return;
+      header.dataset.sortReady = 'true';
+      header.dataset.sortDirection = '';
+      header.dataset.sortBaseHtml = header.innerHTML;
+      header.style.cursor = 'pointer';
+      header.style.userSelect = 'none';
+      header.style.whiteSpace = 'nowrap';
+
+      header.addEventListener('click', () => {
+        const currentDirection = header.dataset.sortDirection === 'asc' ? 'asc' : (header.dataset.sortDirection === 'desc' ? 'desc' : '');
+        const nextDirection = currentDirection === 'asc' ? 'desc' : 'asc';
+        header.dataset.sortDirection = nextDirection;
+
+        headers.forEach(otherHeader => {
+          if (otherHeader !== header) otherHeader.dataset.sortDirection = '';
+          renderDashboardSortIndicator(otherHeader, otherHeader.dataset.sortDirection);
+        });
+
+        renderDashboardSortIndicator(header, nextDirection);
+
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const decoratedRows = rows.map((row, originalIndex) => {
+          const cell = row.children[columnIndex];
+          const value = parseSortableCellValue(cell ? cell.textContent : '', columnIndex, tableConfig);
+          return { row, originalIndex, value };
+        });
+
+        decoratedRows.sort((left, right) => {
+          const base = compareSortableValues(left.value, right.value);
+          if (base !== 0) return nextDirection === 'asc' ? base : -base;
+          return left.originalIndex - right.originalIndex;
+        });
+
+        decoratedRows.forEach(item => tbody.appendChild(item.row));
+      });
+    });
+  });
+}
+
+function ensureChartJsLoaded() {
+  return new Promise((resolve, reject) => {
+    if (window.Chart) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Chart.js'));
+    document.head.appendChild(script);
+  });
+}
+
+function renderCharts(charts, dashboardType = '') {
+  ensureChartJsLoaded().then(() => {
+    const chartTextColor = '#000';
+    if (window.Chart && Chart.defaults) {
+      Chart.defaults.color = chartTextColor;
+    }
+
+    const bodyZoomRaw = parseFloat(getComputedStyle(document.body).zoom || '1');
+    const bodyZoom = Number.isFinite(bodyZoomRaw) && bodyZoomRaw > 0 ? bodyZoomRaw : 1;
+    const eventZoomFixPlugin = bodyZoom !== 1 ? {
+      id: 'eventZoomFixPlugin',
+      beforeEvent(chart, args) {
+        const evt = args && args.event;
+        if (!evt) return;
+        evt.x = evt.x / bodyZoom;
+        evt.y = evt.y / bodyZoom;
+      }
+    } : null;
+
+    const palette = ['#0039A6', '#4F46E5', '#22C55E', '#EAB308', '#EF4444', '#06B6D4', '#A855F7', '#F97316', '#84CC16', '#0EA5E9'];
+
+    charts.forEach((chart, idx) => {
+      const canvas = document.getElementById(`chart-canvas-${idx}`);
+      if (!canvas) return;
+
+      const ctx = canvas.getContext('2d');
+      const isStacked = !!chart.stacked;
+      const isRollingMatchWinRateChart =
+        dashboardType === 'match-performance' &&
+        String(chart.title || '').trim().toLowerCase() === 'rolling match win rate';
+
+      const datasets = (chart.data?.datasets || []).map((ds, i) => {
+        const datasetType = ds.type || chart.type || 'bar';
+        const base = {
+          label: ds.label || `Series ${i + 1}`,
+          data: ds.data || [],
+          type: datasetType
+        };
+
+        if (datasetType === 'line') {
+          const defaults = {
+            borderColor: palette[i % palette.length],
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            tension: isRollingMatchWinRateChart ? 0.4 : 0.25,
+            cubicInterpolationMode: isRollingMatchWinRateChart ? 'monotone' : 'default',
+            fill: false,
+            pointRadius: isRollingMatchWinRateChart ? 0 : 2,
+            pointHoverRadius: isRollingMatchWinRateChart ? 4 : 5,
+            pointHitRadius: 10,
+            spanGaps: true,
+            showLine: true
+          };
+          const mergedLineDataset = { ...defaults, ...base, ...ds };
+          if (isRollingMatchWinRateChart) {
+            mergedLineDataset.tension = 0.5;
+            mergedLineDataset.cubicInterpolationMode = 'monotone';
+            mergedLineDataset.pointRadius = 0;
+            mergedLineDataset.pointHoverRadius = 4;
+            mergedLineDataset.fill = false;
+          }
+          return mergedLineDataset;
+        }
+
+        const defaults = {
+          backgroundColor: palette[i % palette.length],
+          borderWidth: 0,
+          stack: isStacked ? 'default' : undefined
+        };
+        return { ...defaults, ...base, ...ds };
+      });
+
+      const dualAxis = !!chart.dualAxis;
+      const baseScales = dualAxis ? {
+        x: { title: { display: !!chart.xTitle, text: chart.xTitle || '', font: { weight: 'normal', size: 13 } } },
+        y: {
+          type: 'linear',
+          position: 'left',
+          beginAtZero: chart.yBeginAtZero ?? true,
+          min: chart.yMin ?? undefined,
+          max: chart.yMax ?? undefined,
+          title: { display: !!chart.yTitle, text: chart.yTitle || '', font: { weight: 'normal', size: 13 } }
+        },
+        y1: {
+          type: 'linear',
+          position: 'right',
+          beginAtZero: chart.y1BeginAtZero ?? true,
+          min: chart.y1Min ?? undefined,
+          max: chart.y1Max ?? undefined,
+          grid: { drawOnChartArea: false },
+          title: { display: !!chart.yRightTitle, text: chart.yRightTitle || '', font: { weight: 'normal', size: 13 } }
+        }
+      } : (isStacked ? {
+        x: { stacked: true, title: { display: !!chart.xTitle, text: chart.xTitle || '', font: { weight: 'normal', size: 13 } } },
+        y: { stacked: true, beginAtZero: true, title: { display: !!chart.yTitle, text: chart.yTitle || '', font: { weight: 'normal', size: 13 } } }
+      } : {
+        x: { title: { display: !!chart.xTitle, text: chart.xTitle || '', font: { weight: 'normal', size: 13 } } },
+        y: { beginAtZero: true, title: { display: !!chart.yTitle, text: chart.yTitle || '', font: { weight: 'normal', size: 13 } } }
+      });
+
+      Object.values(baseScales).forEach(scale => {
+        if (!scale) return;
+        scale.ticks = { ...(scale.ticks || {}), color: chartTextColor };
+        scale.ticks.font = { ...(scale.ticks.font || {}), weight: 'normal' };
+        if (scale.title) {
+          scale.title = { ...scale.title, color: chartTextColor };
+        }
+      });
+
+      const hasLineDataset = datasets.some(ds => (ds.type || chart.type || 'bar') === 'line');
+      const interactionMode = hasLineDataset ? 'index' : 'nearest';
+      const interactionIntersect = hasLineDataset ? false : true;
+
+      const legendPosition = isRollingMatchWinRateChart ? 'top' : 'right';
+      const legendAlign = 'center';
+      const legendLabelPadding = isRollingMatchWinRateChart ? 6 : 12;
+      const chartTitleText = isRollingMatchWinRateChart ? '' : (chart.chartTitle || '');
+      const chartSubtitleText = isRollingMatchWinRateChart ? '' : (chart.chartSubtitle || '');
+
+      new Chart(ctx, {
+        plugins: eventZoomFixPlugin ? [eventZoomFixPlugin] : [],
+        type: chart.type || 'bar',
+        data: {
+          labels: chart.data?.labels || [],
+          datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: { padding: { top: 0 } },
+          animation: { duration: 750, easing: 'easeOutCubic' },
+          animations: {
+            x: { duration: 750, easing: 'easeOutCubic' },
+            y: { duration: 750, easing: 'easeOutCubic' },
+            colors: { duration: 750, easing: 'easeOutCubic' }
+          },
+          interaction: { mode: interactionMode, intersect: interactionIntersect },
+          hover: { mode: interactionMode, intersect: interactionIntersect },
+          tooltips: { mode: interactionMode, intersect: interactionIntersect },
+          legend: {
+            display: (typeof chart.legendDisplay !== 'undefined') ? !!chart.legendDisplay : true,
+            position: legendPosition,
+            align: legendAlign,
+            labels: { padding: legendLabelPadding, color: chartTextColor }
+          },
+          plugins: {
+            legend: {
+              display: (typeof chart.legendDisplay !== 'undefined') ? !!chart.legendDisplay : true,
+              position: legendPosition,
+              align: legendAlign,
+              labels: {
+                padding: legendLabelPadding,
+                color: chartTextColor,
+                font: { weight: 'normal' }
+              }
+            },
+            title: {
+              display: !!chartTitleText,
+              text: chartTitleText,
+              font: { weight: 'bold', size: 18 },
+              color: chartTextColor,
+              padding: { bottom: 6 }
+            },
+            subtitle: chartSubtitleText ? {
+              display: true,
+              text: chartSubtitleText,
+              font: { weight: 'normal', size: 14 },
+              color: chartTextColor,
+              padding: { top: 2, bottom: 24 }
+            } : undefined,
+            tooltip: {
+              titleColor: chartTextColor,
+              bodyColor: chartTextColor,
+              footerColor: chartTextColor,
+              titleFont: { weight: 'normal' },
+              bodyFont: { weight: 'normal' },
+              footerFont: { weight: 'normal' },
+              backgroundColor: 'rgba(255, 255, 255, 0.96)',
+              borderColor: '#d1d5db',
+              borderWidth: 1
+            }
+          },
+          scales: baseScales
+        }
+      });
+    });
+  }).catch(err => {
+    console.error('Chart rendering failed:', err);
+  });
+}
+
+async function setChartCasting(chartIdx, perspective) {
+  const filters = getCurrentFilterValues();
+  filters.chartCasting = perspective;
+
+  document.getElementById('loadingState').style.display = 'block';
+  document.getElementById('dashboardResults').style.display = 'none';
+
+  const dashboardType = document.getElementById('dashboardType').value;
+  try {
+    const response = await fetch('/api/dashboard/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-By': 'MTGO-Tracker'
+      },
+      body: JSON.stringify({
+        dashboard_type: dashboardType,
+        filters
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result?.error || `Failed to regenerate dashboard: ${response.status}`);
+    }
+
+    if (result.success) {
+      renderDashboardContent(result.data, dashboardType);
+      setTimeout(() => {
+        const heroBtn = document.getElementById(`chart-persp-hero-${chartIdx}`);
+        const oppBtn = document.getElementById(`chart-persp-opponents-${chartIdx}`);
+        if (heroBtn && oppBtn) {
+          if (perspective === 'hero') {
+            heroBtn.classList.add('active');
+            oppBtn.classList.remove('active');
+          } else {
+            oppBtn.classList.add('active');
+            heroBtn.classList.remove('active');
+          }
+        }
+      }, 0);
+    } else {
+      throw new Error(result.error || 'Failed to regenerate dashboard');
+    }
+  } catch (err) {
+    console.error('Failed to set chart casting:', err);
+    showDashboardError(err.message, `setChartCasting(${chartIdx}, '${perspective}')`);
+  }
+}

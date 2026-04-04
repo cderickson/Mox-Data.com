@@ -1518,3 +1518,220 @@ function showMatchTypeField(item) {
   document.getElementById("FormatFieldsContainer").style.display = 'none';
   document.getElementById("MatchTypeFieldsContainer").style.display = 'block';
 }
+
+// Store original form values for reset functionality
+let originalFormValues = {};
+
+function hideReviseModal() {
+  resetReviseModalForm();
+  document.getElementById('ReviseModal').style.display = 'none';
+  document.body.style.overflow = 'auto';
+}
+
+function resetReviseModalForm() {
+  if (originalFormValues.p1_arch !== undefined) {
+    const p1ArchButton = document.getElementById('P1ArchButton');
+    if (p1ArchButton) p1ArchButton.textContent = originalFormValues.p1_arch || 'NA';
+  }
+
+  if (originalFormValues.p2_arch !== undefined) {
+    const p2ArchButton = document.getElementById('P2ArchButton');
+    if (p2ArchButton) p2ArchButton.textContent = originalFormValues.p2_arch || 'NA';
+  }
+
+  if (originalFormValues.format !== undefined) {
+    const formatButton = document.getElementById('FormatButton');
+    if (formatButton) formatButton.textContent = originalFormValues.format || 'NA';
+  }
+
+  if (originalFormValues.match_type !== undefined) {
+    const matchTypeButton = document.getElementById('MatchTypeButton');
+    if (matchTypeButton) matchTypeButton.textContent = originalFormValues.match_type || 'NA';
+  }
+
+  if (originalFormValues.p1_subarch !== undefined) {
+    const p1SubarchInput = document.getElementById('P1_Subarch');
+    if (p1SubarchInput) p1SubarchInput.value = originalFormValues.p1_subarch || 'NA';
+  }
+
+  if (originalFormValues.p2_subarch !== undefined) {
+    const p2SubarchInput = document.getElementById('P2_Subarch');
+    if (p2SubarchInput) p2SubarchInput.value = originalFormValues.p2_subarch || 'NA';
+  }
+
+  if (originalFormValues.limited_format !== undefined) {
+    const limitedFormatInput = document.getElementById('Limited_Format');
+    if (limitedFormatInput) {
+      const value = String(originalFormValues.limited_format ?? '').trim();
+      limitedFormatInput.value = (!value || value.toUpperCase() === 'NA') ? 'NA' : value;
+    }
+  }
+}
+
+function hideReviseMultiModal() {
+  document.getElementById('ReviseMultiModal').style.display = 'none';
+  document.body.style.overflow = 'auto';
+}
+
+function hideRemoveModal() {
+  document.getElementById('RemoveModal').style.display = 'none';
+  document.body.style.overflow = 'auto';
+}
+
+function hideReviseIgnoredModal() {
+  document.getElementById('ReviseIgnoredModal').style.display = 'none';
+  document.body.style.overflow = 'auto';
+}
+
+let selectedIgnoredRows = [];
+
+function initializeIgnoredTable() {
+  const tableRows = document.querySelectorAll('.jsTableRow');
+  const unignoreButton = document.getElementById('RemoveIgnoredButton');
+
+  if (unignoreButton) {
+    unignoreButton.disabled = true;
+    unignoreButton.style.opacity = '0.5';
+  }
+
+  tableRows.forEach((row, index) => {
+    row.addEventListener('click', function(e) {
+      e.preventDefault();
+      toggleIgnoredRowSelection(row, index);
+    });
+  });
+}
+
+function toggleIgnoredRowSelection(row, index) {
+  const isSelected = row.classList.contains('selected');
+  if (isSelected) return;
+
+  document.querySelectorAll('.jsTableRow').forEach(r => r.classList.remove('selected'));
+  selectedIgnoredRows = [];
+  row.classList.add('selected');
+  selectedIgnoredRows.push(index);
+
+  updateUnignoreButton();
+}
+
+function updateUnignoreButton() {
+  const unignoreButton = document.getElementById('RemoveIgnoredButton');
+  if (!unignoreButton) return;
+
+  if (selectedIgnoredRows.length > 0) {
+    unignoreButton.disabled = false;
+    unignoreButton.style.opacity = '1';
+  } else {
+    unignoreButton.disabled = true;
+    unignoreButton.style.opacity = '0.5';
+  }
+}
+
+async function unignoreMatch() {
+  if (selectedIgnoredRows.length === 0) return;
+
+  const selectedRow = document.querySelectorAll('.jsTableRow')[selectedIgnoredRows[0]];
+  const matchId = selectedRow.cells[0].textContent;
+
+  try {
+    showProcessingModal('Removing from ignored list...');
+
+    const response = await fetch('/api/ignored/remove', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        match_ids: [matchId]
+      })
+    });
+
+    const result = await response.json();
+    hideProcessingModal();
+    hideReviseIgnoredModal();
+
+    if (result.success) {
+      showFlashMessage(result.message, 'success');
+      window.location.reload();
+    } else {
+      showFlashMessage(result.error || 'Failed to remove from ignored list', 'error');
+    }
+  } catch (error) {
+    hideProcessingModal();
+    hideReviseIgnoredModal();
+    console.error('Error removing from ignored list:', error);
+    showFlashMessage('Failed to remove from ignored list', 'error');
+  }
+}
+
+function setColumnAlignment() {
+  const table = document.querySelector('.modern-table');
+  if (!table) return;
+
+  const headers = table.querySelectorAll('thead th');
+  const leftAlignHeaders = [];
+
+  headers.forEach((header, index) => {
+    const headerText = header.textContent.trim();
+    if (leftAlignHeaders.includes(headerText)) {
+      const columnCells = table.querySelectorAll(`tbody tr td:nth-child(${index + 1})`);
+      columnCells.forEach(cell => {
+        cell.classList.add('left-align');
+      });
+    }
+  });
+}
+
+function addCellTooltips() {
+  const tableCells = document.querySelectorAll('.modern-table td');
+  const tableHeaders = document.querySelectorAll('.modern-table th');
+
+  tableCells.forEach(cell => {
+    const textContent = cell.textContent.trim();
+    if (cell.classList.contains('card-image-hover-cell')) {
+      cell.removeAttribute('title');
+      return;
+    }
+    if (textContent) {
+      cell.setAttribute('title', textContent);
+    } else {
+      cell.removeAttribute('title');
+    }
+  });
+
+  tableHeaders.forEach(header => {
+    const textContent = header.textContent.trim();
+    if (textContent) {
+      header.setAttribute('title', textContent);
+    } else {
+      header.removeAttribute('title');
+    }
+  });
+}
+
+window.addCellTooltips = addCellTooltips;
+
+document.addEventListener('DOMContentLoaded', function() {
+  const tableNameElement = document.getElementById('tname');
+  const tableName = tableNameElement ? tableNameElement.value : '';
+
+  if (tableName === 'ignored') {
+    initializeIgnoredTable();
+    const unignoreButton = document.getElementById('RemoveIgnoredButton');
+    if (unignoreButton) {
+      unignoreButton.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (selectedIgnoredRows.length === 0) return;
+
+        const selectedRow = document.querySelectorAll('.jsTableRow')[selectedIgnoredRows[0]];
+        const matchId = selectedRow.cells[0].textContent;
+        document.getElementById('selectedMatchId').textContent = matchId;
+        document.getElementById('ReviseIgnoredModal').style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+      });
+    }
+  }
+
+  setColumnAlignment();
+  addCellTooltips();
+});

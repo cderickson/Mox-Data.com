@@ -4,36 +4,7 @@
 {% block page_title %}Getting Started{% endblock %}
 
 {% block extra_css %}
-<style>
-  /* Match API documentation edge spacing on Getting Started cards */
-  .faq-container .getting-started-stack .static-card .section-card-header {
-    padding: 20px 24px 16px 24px;
-  }
-
-  .faq-container .getting-started-stack .collapsible-tab .section-card-header {
-    padding: 12px 24px 16px 24px;
-  }
-
-  .faq-container .getting-started-stack .static-card .section-card-content {
-    padding: 16px 24px;
-  }
-
-  .faq-container .getting-started-stack .collapsible-tab.expanded .section-card-content {
-    padding: 0 24px;
-  }
-
-  /* Match Vintage API collapsible card typography in Getting Started */
-  .faq-container .getting-started-stack .message-box p,
-  .faq-container .getting-started-stack .message-box ul,
-  .faq-container .getting-started-stack .message-box ol {
-    font-size: 13px;
-  }
-
-  .faq-container .getting-started-stack .message-box h4,
-  .faq-container .getting-started-stack .message-box h5 {
-    font-size: 14px;
-  }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='gettingstarted.css') }}">
 {% endblock %}
 
 {% block content %}
