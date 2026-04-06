@@ -149,22 +149,24 @@ EXPORT_TTL_SECONDS = 60 * 60  # 1 hour
 EXPORT_COOLDOWN_SECONDS = int(os.environ.get('EXPORT_COOLDOWN_SECONDS', str(15 * 60)))
 EXPORT_DOWNLOAD_SALT = os.environ.get("EXPORT_DOWNLOAD_SALT", "export-download-salt")
 AUTH_LINK_TTL_SECONDS = 60 * 60  # 1 hour
-LOAD_REPORT_LABEL_COL_STYLE_CENTER = (
-	"font-size: 14pt; width: 320px; min-width: 320px; max-width: 320px; "
-	"white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"
-)
-LOAD_REPORT_LABEL_COL_STYLE_LEFT = (
-	"font-size: 14pt; width: 320px; min-width: 320px; max-width: 320px; "
-	"white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left"
-)
-LOAD_REPORT_VALUE_COL_STYLE = (
-	"font-size: 14pt; width: 125px; min-width: 125px; max-width: 125px; "
-	"white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center"
-)
+# Load report emails: avoid very long HTML lines. MTAs/MIME may fold lines and
+# break inside tokens (e.g. "125px" -> "1" + newline + "25px", "<td" -> "<" + " td").
+LOAD_REPORT_EMAIL_STYLE_BLOCK = """<style type="text/css">
+.mox-lr-lc{font-size:14pt;width:320px;white-space:nowrap;text-align:center;
+overflow:hidden;text-overflow:ellipsis}
+.mox-lr-ll{font-size:14pt;width:320px;white-space:nowrap;text-align:left;
+overflow:hidden;text-overflow:ellipsis}
+.mox-lr-v{font-size:14pt;width:125px;white-space:nowrap;text-align:center;
+overflow:hidden;text-overflow:ellipsis}
+</style>"""
 
 def _utc_now():
 	"""Return current UTC time using non-deprecated API (naive UTC for existing DB DateTime usage)."""
 	return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+def zip_member_mtime_compact(member):
+	"""Return YYYYMMDDHHMM exactly from ZipInfo.date_time (no timezone conversion)."""
+	return datetime.datetime(*member.date_time).strftime('%Y%m%d%H%M')
 
 def _is_admin_authorized():
 	"""Allow admin-only routes for admins, uid=1, or ADMIN_EMAILS."""
@@ -229,43 +231,58 @@ def _set_auth_email_content(msg, intro_text, link, ttl_seconds=None):
 	except Exception as image_error:
 		debug_log(f'Auth email header image attach skipped: {image_error}')
 
+def _normalize_load_report_row_values(values):
+	normalized = list(values or [])
+	normalized.extend([''] * max(0, 5 - len(normalized)))
+	return normalized[:5]
+
+
+def _format_load_report_plain(rows):
+	"""Plain-text table for multipart/alternative (avoids raw HTML in text clients)."""
+	column_headers = ['Matches', 'Games', 'Plays', 'Drafts', 'Draft Picks']
+	lines = ['\t'.join(['Load Result'] + column_headers)]
+	for label, values in rows:
+		normalized_values = _normalize_load_report_row_values(values)
+		lines.append(
+			'\t'.join([str(label)] + [str(v) if v != '' else '' for v in normalized_values])
+		)
+	return '\n'.join(lines)
+
 def _render_load_report_table(rows):
 	"""Render standardized load report table for email templates."""
 	column_headers = ['Matches', 'Games', 'Plays', 'Drafts', 'Draft Picks']
-	header_html = ''.join(
-		f'<th style="{LOAD_REPORT_VALUE_COL_STYLE}">{header}</th>'
-		for header in column_headers
+	header_cells = '\n'.join(
+		f'<th class="mox-lr-v">{html.escape(header)}</th>' for header in column_headers
 	)
 
 	row_html_parts = []
 	for label, values in rows:
-		normalized_values = list(values or [])
-		normalized_values.extend([''] * max(0, 5 - len(normalized_values)))
-		normalized_values = normalized_values[:5]
-		value_cells = ''.join(
-			f'<td style="{LOAD_REPORT_VALUE_COL_STYLE}">{html.escape(str(value)) if value != "" else ""}</td>'
+		normalized_values = _normalize_load_report_row_values(values)
+		value_cells = '\n'.join(
+			f'<td class="mox-lr-v">{html.escape(str(value)) if value != "" else ""}</td>'
 			for value in normalized_values
 		)
 		row_html_parts.append(
-			f'<tr>'
-			f'<th style="{LOAD_REPORT_LABEL_COL_STYLE_LEFT}">{html.escape(str(label))}</th>'
-			f'{value_cells}'
-			f'</tr>'
+			'<tr>\n'
+			f'<th class="mox-lr-ll">{html.escape(str(label))}</th>\n'
+			f'{value_cells}\n'
+			'</tr>'
 		)
 
 	return (
-		'<div style="display: flex; justify-content: center;">'
-		'<table>'
-		'<thead>'
-		'<tr>'
-		f'<th style="{LOAD_REPORT_LABEL_COL_STYLE_CENTER}">Load Result</th>'
-		f'{header_html}'
-		'</tr>'
-		'</thead>'
-		'<tbody>'
-		f'{"".join(row_html_parts)}'
-		'</tbody>'
-		'</table>'
+		'<div style="display: flex; justify-content: center;">\n'
+		f'{LOAD_REPORT_EMAIL_STYLE_BLOCK}\n'
+		'<table>\n'
+		'<thead>\n'
+		'<tr>\n'
+		'<th class="mox-lr-lc">Load Result</th>\n'
+		f'{header_cells}\n'
+		'</tr>\n'
+		'</thead>\n'
+		'<tbody>\n'
+		+ '\n'.join(row_html_parts) + '\n'
+		+ '</tbody>\n'
+		'</table>\n'
 		'</div>'
 	)
 
@@ -379,7 +396,38 @@ def count_actionable_draft_id_matches(uid, username):
 		Match.format.in_(['Cube', 'Booster Draft'])
 	).count()
 
-def compute_sidebar_status_for_user(uid):
+def count_archived_log_files_for_user(uid):
+	"""Count GameLog/DraftLog files in user archive (local uploads dir or S3 uploads prefix)."""
+	uid_str = str(uid)
+	if S3_ENABLED and s3_client and S3_BUCKET_NAME:
+		prefix = f"{S3_UPLOADS_PREFIX}{uid_str}/"
+		n = 0
+		try:
+			paginator = s3_client.get_paginator('list_objects_v2')
+			for page in paginator.paginate(Bucket=S3_BUCKET_NAME, Prefix=prefix):
+				for obj in page.get('Contents', []):
+					key = obj.get('Key') or ''
+					if not key or key.endswith('/'):
+						continue
+					filename = key.split('/')[-1]
+					if get_logtype_from_filename(filename) in ['GameLog', 'DraftLog']:
+						n += 1
+		except ClientError as e:
+			debug_log(f"count_archived_log_files_for_user: S3 list failed uid={uid_str}: {e}")
+			return 0
+		return n
+
+	archive_dir = os.path.join('local-dev', 'data', 'uploads', uid_str)
+	n = 0
+	if os.path.exists(archive_dir):
+		for filename in os.listdir(archive_dir):
+			if filename.endswith('.meta'):
+				continue
+			if get_logtype_from_filename(filename) in ['GameLog', 'DraftLog']:
+				n += 1
+	return n
+
+def compute_sidebar_status_for_user(uid, archive_files_count=None):
     """Compute sidebar enable/disable status for a given user id."""
     match_count = Match.query.filter_by(uid=uid).count()
     draft_count = Draft.query.filter_by(uid=uid).count()
@@ -389,16 +437,8 @@ def compute_sidebar_status_for_user(uid):
     actionable_missing_winners_count = count_actionable_missing_winners(uid, username)
     actionable_draft_id_count = count_actionable_draft_id_matches(uid, username)
 
-    # Check if archive directory has files for reprocessing
-    archive_files_count = 0
-    archive_dir = os.path.join('local-dev', 'data', 'uploads', str(uid))
-    if os.path.exists(archive_dir):
-        all_files = os.listdir(archive_dir)
-        for filename in all_files:
-            if not filename.endswith('.meta'):
-                log_type = get_logtype_from_filename(filename)
-                if log_type in ['GameLog', 'DraftLog']:
-                    archive_files_count += 1
+    if archive_files_count is None:
+        archive_files_count = count_archived_log_files_for_user(uid)
 
     return {
         'matches_enabled': match_count > 0,
@@ -732,7 +772,7 @@ def process_logs(self, data):
 			if not S3_ENABLED:  # Local file storage
 				# Local file storage logic
 				local_file_path = os.path.join(local_storage_dir, member.filename)
-				new_mtime = time.strftime('%Y%m%d%H%M', member.date_time + (0, 0, -1))
+				new_mtime = zip_member_mtime_compact(member)
 				base_filename = member.filename.split('/')[-1]
 				debug_log(f"🔍 EXTRACT DEBUG: Local file path: {local_file_path}")
 				debug_log(f"🔍 EXTRACT DEBUG: New file mtime: {new_mtime}")
@@ -808,7 +848,7 @@ def process_logs(self, data):
 					uploaded += 1
 			else:  # S3 storage
 				s3_key = f"{path}{member.filename}"
-				new_mtime = time.strftime('%Y%m%d%H%M', member.date_time + (0, 0, -1))
+				new_mtime = zip_member_mtime_compact(member)
 				base_filename = member.filename.split('/')[-1]
 				# Check if object exists
 				try:
@@ -834,7 +874,7 @@ def process_logs(self, data):
 				except ClientError as e:
 					if e.response['Error']['Code'] in ('404', 'NoSuchKey', 'NotFound'):
 						# New object
-						file_mod_time = time.strftime('%Y%m%d%H%M', member.date_time + (0, 0, -1))
+						file_mod_time = zip_member_mtime_compact(member)
 						zip_ref.extract(member, os.getcwd())
 						with open(member.filename, 'rb') as file_to_upload:
 							s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=S3_UPLOADS_PREFIX + s3_key, Body=file_to_upload, Metadata={'original_mod_time': file_mod_time})
@@ -925,7 +965,10 @@ def process_logs(self, data):
 					with open(file_info['path'], 'r', encoding='utf-8', errors='ignore') as f:
 						initial = f.read().replace('\x00','')
 				elif file_info['storage_type'] == 's3':
-					obj = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=file_info['s3_key'])
+					# uploaded_files stores s3_key without prefix; put_object uses S3_UPLOADS_PREFIX + s3_key
+					obj = s3_client.get_object(
+						Bucket=S3_BUCKET_NAME, Key=S3_UPLOADS_PREFIX + file_info['s3_key']
+					)
 					body = obj['Body'].read()
 					initial = body.decode('utf-8', errors='ignore').replace('\r','').replace('\x00','')
 
@@ -1221,18 +1264,25 @@ def process_logs(self, data):
 			mail = app.extensions['mail']
 			msg = Message(f'Mox Data Load Report #{new_task_history.task_id}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
 			debug_log("📧 LOAD REPORT: Message object created")
-			
+
+			import_load_rows = [
+				('Files Processed', [counts['total_gamelogs'], '', '', counts['total_draftlogs'], '']),
+				('New Records Loaded', [counts['new_matches'], counts['new_games'], counts['new_plays'], counts['new_drafts'], counts['new_picks']]),
+				('Records Updated', [counts['matches_replaced'], counts['games_replaced'], counts['plays_replaced'], counts['drafts_replaced'], counts['picks_replaced']]),
+				('Files Skipped (Removed)', [counts['gamelogs_skipped_removed'], '', '', counts['draftlogs_skipped_removed'], '']),
+				('Files Skipped (Empty)', [counts['gamelogs_skipped_empty'], '', '', counts['draftlogs_skipped_empty'], '']),
+				('Files Skipped (Errors)', [counts['gamelogs_skipped_error'], '', '', counts['draftlogs_skipped_error'], '']),
+			]
+			msg.body = (
+				f'Load Report, Import GameLogs #{new_task_history.task_id}\n'
+				f'Completed: {curr_date} at {curr_time}\n\n'
+				f'{_format_load_report_plain(import_load_rows)}\n\n'
+				'Note: Two records are loaded and stored for each Match and Game.'
+			)
 			msg.html = f'''
 		<h2 style="text-align: center">Load Report, Import GameLogs - #{new_task_history.task_id}<br></h2>
 		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}</h3><br><br>
-		{_render_load_report_table([
-			('Files Processed', [counts['total_gamelogs'], '', '', counts['total_draftlogs'], '']),
-			('New Records Loaded', [counts['new_matches'], counts['new_games'], counts['new_plays'], counts['new_drafts'], counts['new_picks']]),
-			('Records Updated', [counts['matches_replaced'], counts['games_replaced'], counts['plays_replaced'], counts['drafts_replaced'], counts['picks_replaced']]),
-			('Files Skipped (Removed)', [counts['gamelogs_skipped_removed'], '', '', counts['draftlogs_skipped_removed'], '']),
-			('Files Skipped (Empty)', [counts['gamelogs_skipped_empty'], '', '', counts['draftlogs_skipped_empty'], '']),
-			('Files Skipped (Errors)', [counts['gamelogs_skipped_error'], '', '', counts['draftlogs_skipped_error'], '']),
-		])}
+		{_render_load_report_table(import_load_rows)}
 		<div style="display: flex; justify-content: center;">
 			<p style="text-align: center; font-style: italic;">Note: Two records are loaded and stored for each Match and Game.</p>
 		</div>
@@ -1375,12 +1425,19 @@ def process_revisions_from_app(self, data):
 
 		mail = app.extensions['mail']
 		msg = Message(f'Mox Data Load Report #{task_id_display}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
+		revision_load_rows = [
+			('Records Updated', [counts['updated_matches'], counts['updated_games'], '', counts['updated_drafts'], '']),
+		]
+		msg.body = (
+			f'Load Report, Load Revisions from MTGO-Tracker #{task_id_display}\n'
+			f'Completed: {curr_date} at {curr_time}\n\n'
+			f'{_format_load_report_plain(revision_load_rows)}\n\n'
+			'This flow applies revisions to existing match records only.'
+		)
 		msg.html = f'''
 		<h2 style="text-align: center">Load Report, Load Revisions from MTGO-Tracker - #{task_id_display}<br></h2>
 		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}</h3><br><br>
-		{_render_load_report_table([
-			('Records Updated', [counts['updated_matches'], counts['updated_games'], '', counts['updated_drafts'], '']),
-		])}
+		{_render_load_report_table(revision_load_rows)}
 		<div style="display: flex; justify-content: center;">
 			<p style="text-align: center; font-style: italic;">This flow applies revisions to existing match records only.</p>
 		</div>
@@ -1781,17 +1838,24 @@ def reprocess_logs(self, data):
 
 		mail = app.extensions['mail']
 		msg = Message(f'Mox Data Load Report #{new_task_history.task_id}', sender=app.config.get('MAIL_USERNAME'), recipients=[data['email']])
-		msg.html = f'''
-		<h2 style="text-align: center">Load Report, Re-Processing Data - #{new_task_history.task_id}<br></h2>
-		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}</h3><br><br>
-		{_render_load_report_table([
+		reprocess_load_rows = [
 			('Files Processed', [counts['total_gamelogs'], '', '', counts['total_draftlogs'], '']),
 			('New Records Loaded', [counts['new_matches'], counts['new_games'], counts['new_plays'], counts['new_drafts'], counts['new_picks']]),
 			('Files Skipped (Removed)', [counts['gamelogs_skipped_removed'], '', '', counts['draftlogs_skipped_removed'], '']),
 			('Files Skipped (Empty)', [counts['gamelogs_skipped_empty'], '', '', counts['draftlogs_skipped_empty'], '']),
 			('Files Skipped (Errors)', [counts['gamelogs_skipped_error'], '', '', counts['draftlogs_skipped_error'], '']),
 			('Records Updated', [counts['matches_updated'], '', '', counts['drafts_updated'], '']),
-		])}
+		]
+		msg.body = (
+			f'Load Report, Re-Processing Data #{new_task_history.task_id}\n'
+			f'Completed: {curr_date} at {curr_time}\n\n'
+			f'{_format_load_report_plain(reprocess_load_rows)}\n\n'
+			'Note: Two records are loaded and stored for each Match and Game.'
+		)
+		msg.html = f'''
+		<h2 style="text-align: center">Load Report, Re-Processing Data - #{new_task_history.task_id}<br></h2>
+		<h3 style="text-align: center">Completed: {curr_date} at {curr_time}</h3><br><br>
+		{_render_load_report_table(reprocess_load_rows)}
 		<div style="display: flex; justify-content: center;">
 			<p style="text-align: center; font-style: italic;">Note: Two records are loaded and stored for each Match and Game.</p>
 		</div>
@@ -2099,7 +2163,7 @@ def login():
 @login_required
 def logout():
 	logout_user()
-	flash('User logged out.', category='error')
+	flash('Successfully logged out.', category='success')
 	return redirect(url_for('views.index'))
 
 @views.route('/load', methods=['POST'])
@@ -6290,19 +6354,8 @@ def api_table_status():
 			current_user.username
 		)
 		
-		# Check if archive directory has files for reprocessing
-		archive_files_count = 0
-		archive_dir = os.path.join('local-dev', 'data', 'uploads', str(current_user.uid))
-		if os.path.exists(archive_dir):
-			all_files = os.listdir(archive_dir)
-			# Count only GameLog and DraftLog files (not .meta files)
-			for filename in all_files:
-				if not filename.endswith('.meta'):
-					log_type = get_logtype_from_filename(filename)
-					if log_type in ['GameLog', 'DraftLog']:
-						archive_files_count += 1
-
-		status = compute_sidebar_status_for_user(current_user.uid)
+		archive_files_count = count_archived_log_files_for_user(current_user.uid)
+		status = compute_sidebar_status_for_user(current_user.uid, archive_files_count=archive_files_count)
 		
 		return jsonify({
 			'match_count': match_count,
