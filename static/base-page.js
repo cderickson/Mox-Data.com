@@ -579,6 +579,44 @@ async function refreshReferenceCache(event) {
   }
 }
 
+async function refreshVintageCache(event) {
+  if (event) event.preventDefault();
+  const refreshButton = document.getElementById('debugRefreshVintageCacheButton');
+  if (refreshButton) {
+    refreshButton.style.pointerEvents = 'none';
+    refreshButton.style.opacity = '0.6';
+  }
+
+  try {
+    const response = await fetch('/admin/refresh-vintage-cache', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.success) {
+      throw new Error(result?.error || 'Failed to clear vintage cache');
+    }
+
+    const stats = result.stats || {};
+    alert(
+      `Vintage cache cleared.\n` +
+      `Entries cleared: ${stats.cleared_entries ?? 0}\n` +
+      `Cleared at (UTC): ${stats.cleared_at_utc || 'unknown'}`
+    );
+  } catch (error) {
+    console.error('Error clearing vintage cache:', error);
+    alert(error?.message || 'Failed to clear vintage cache');
+  } finally {
+    if (refreshButton) {
+      refreshButton.style.pointerEvents = '';
+      refreshButton.style.opacity = '';
+    }
+  }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   const tableDependent = document.querySelectorAll('.table-dependent');
   if (tableDependent.length > 0) {

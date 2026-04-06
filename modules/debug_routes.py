@@ -481,6 +481,25 @@ def manual_refresh_reference_cache():
             pass
         return jsonify({'error': 'Failed to refresh reference cache'}), 500
 
+@debug_bp.route('/admin/refresh-vintage-cache', methods=['POST'])
+def manual_refresh_vintage_cache():
+    """Manually clear vintage response caches (admin-only)."""
+    try:
+        from modules import views as views_module
+        stats = views_module.clear_vintage_response_cache()
+        return jsonify({
+            'success': True,
+            'message': 'Vintage response cache cleared.',
+            'stats': stats,
+        }), 200
+    except Exception as e:
+        try:
+            from modules import views as views_module
+            views_module.debug_log(f"Error clearing vintage response cache: {e}")
+        except Exception:
+            pass
+        return jsonify({'error': 'Failed to clear vintage response cache'}), 500
+
 @debug_bp.route('/view_debug_log')
 def view_debug_log():
     """View debug log file."""

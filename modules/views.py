@@ -3662,6 +3662,11 @@ def vintage_data_dictionary():
 	return render_template('vintage-datadict.html', user=current_user)
 
 VINTAGE_FORCE_UPPER_TERMS = {'BUG', 'DRS', 'PO', 'NA', 'UB'}
+VINTAGE_RESPONSE_CACHE_FRESH_TTL_SECONDS = int(os.environ.get('VINTAGE_RESPONSE_CACHE_FRESH_TTL_SECONDS', str(24 * 60 * 60)))
+VINTAGE_RESPONSE_CACHE_STALE_WINDOW_SECONDS = int(os.environ.get('VINTAGE_RESPONSE_CACHE_STALE_WINDOW_SECONDS', str(21 * 24 * 60 * 60)))
+VINTAGE_RESPONSE_CACHE_MAX_ENTRIES = int(os.environ.get('VINTAGE_RESPONSE_CACHE_MAX_ENTRIES', '128'))
+_vintage_response_cache_lock = threading.Lock()
+_vintage_response_cache = {}
 
 def _format_vintage_label_value(value):
 	if value is None:
@@ -3683,8 +3688,110 @@ def _format_vintage_label_value(value):
 			formatted_parts.append(part)
 	return ''.join(formatted_parts)
 
+def _normalize_vintage_cache_key_value(value):
+	"""Normalize values so cache keys are deterministic."""
+	if value is None:
+		return None
+	if isinstance(value, (datetime.date, datetime.datetime)):
+		return value.strftime('%Y-%m-%d')
+	if isinstance(value, dict):
+		return {
+			str(k): _normalize_vintage_cache_key_value(v)
+			for k, v in sorted(value.items(), key=lambda item: str(item[0]))
+		}
+	if isinstance(value, (list, tuple, set)):
+		return [_normalize_vintage_cache_key_value(v) for v in value]
+	return str(value).strip() if isinstance(value, str) else value
+
+def _build_vintage_response_cache_key(endpoint_name, payload):
+	"""Build a stable cache key for vintage response payloads."""
+	normalized_payload = _normalize_vintage_cache_key_value(payload)
+	return json.dumps(
+		{
+			'endpoint': str(endpoint_name or '').strip().lower(),
+			'payload': normalized_payload,
+		},
+		sort_keys=True,
+		separators=(',', ':'),
+	)
+
+def _get_cached_vintage_response(cache_key):
+	"""Return cached payload when still inside fresh+stale window."""
+	if not cache_key:
+		return None
+
+	now = time.time()
+	with _vintage_response_cache_lock:
+		entry = _vintage_response_cache.get(cache_key)
+		if not entry:
+			return None
+
+		if float(entry.get('stale_until') or 0) <= now:
+			_vintage_response_cache.pop(cache_key, None)
+			return None
+		return entry.get('payload')
+
+def _set_cached_vintage_response(cache_key, payload):
+	"""Store payload with a long fresh TTL and stale-serve window."""
+	if not cache_key or payload is None:
+		return
+
+	now = time.time()
+	fresh_ttl = max(1, int(VINTAGE_RESPONSE_CACHE_FRESH_TTL_SECONDS or (24 * 60 * 60)))
+	stale_window = max(1, int(VINTAGE_RESPONSE_CACHE_STALE_WINDOW_SECONDS or (21 * 24 * 60 * 60)))
+	max_entries = max(1, int(VINTAGE_RESPONSE_CACHE_MAX_ENTRIES or 512))
+
+	with _vintage_response_cache_lock:
+		expired_keys = [
+			key for key, value in _vintage_response_cache.items()
+			if float((value or {}).get('stale_until') or 0) <= now
+		]
+		for key in expired_keys:
+			_vintage_response_cache.pop(key, None)
+
+		_vintage_response_cache[cache_key] = {
+			'payload': payload,
+			'stored_at': now,
+			'fresh_until': now + fresh_ttl,
+			'stale_until': now + fresh_ttl + stale_window,
+		}
+
+		if len(_vintage_response_cache) > max_entries:
+			sorted_entries = sorted(
+				_vintage_response_cache.items(),
+				key=lambda item: float((item[1] or {}).get('stored_at') or 0)
+			)
+			extra = len(_vintage_response_cache) - max_entries
+			for key, _ in sorted_entries[:extra]:
+				_vintage_response_cache.pop(key, None)
+
+def _cache_and_return_vintage_payload(cache_key, payload):
+	"""Cache and return plain JSON payload."""
+	_set_cached_vintage_response(cache_key, payload)
+	return jsonify(payload)
+
+def _cache_and_return_vintage_dashboard_data(cache_key, data):
+	"""Cache and return vintage dashboard success payload."""
+	_set_cached_vintage_response(cache_key, data)
+	return jsonify({'success': True, 'data': data})
+
+def clear_vintage_response_cache():
+	"""Clear vintage response cache and return simple stats."""
+	with _vintage_response_cache_lock:
+		cleared_entries = len(_vintage_response_cache)
+		_vintage_response_cache.clear()
+	return {
+		'cleared_entries': int(cleared_entries),
+		'cleared_at_utc': datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+	}
+
 @views.route('/api/vintage/filter-options', methods=['GET'])
 def vintage_filter_options():
+	cache_key = _build_vintage_response_cache_key('vintage-filter-options', {'v': 1})
+	cached_payload = _get_cached_vintage_response(cache_key)
+	if cached_payload is not None:
+		return jsonify(cached_payload)
+
 	filter_options_dict = {
 		'Date1': '',
 		'Date2': '',
@@ -3775,12 +3882,17 @@ def vintage_filter_options():
 		debug_log(f'Error loading vintage filter options: {error}')
 		return jsonify({'error': 'Failed to load vintage filter options'}), 500
 
-	return jsonify(filter_options_dict)
+	return _cache_and_return_vintage_payload(cache_key, filter_options_dict)
 
 @views.route('/api/vintage/filtered-options', methods=['POST'])
 def vintage_filtered_options():
 	payload = request.get_json() or {}
 	filters = payload.get('filters') or {}
+	cache_key = _build_vintage_response_cache_key('vintage-filtered-options', {'filters': filters})
+	cached_payload = _get_cached_vintage_response(cache_key)
+	if cached_payload is not None:
+		return jsonify(cached_payload)
+
 	filter_options_dict = {
 		'Date1': '',
 		'Date2': '',
@@ -3899,7 +4011,7 @@ def vintage_filtered_options():
 				else str(max_date)[:10] if max_date is not None else ''
 			)
 
-		return jsonify(filter_options_dict)
+		return _cache_and_return_vintage_payload(cache_key, filter_options_dict)
 
 	except Exception as error:
 		debug_log(f'Error loading vintage filtered options: {error}')
@@ -4063,6 +4175,14 @@ def api_vintage_dashboard_generate():
 		if dashboard_type not in {'metagame-breakdown', 'event-explorer', 'player-leaderboard', 'matchup-heatmap', 'matchup-graph'}:
 			return jsonify({'success': False, 'error': f'Unsupported dashboard type: {dashboard_type}'}), 400
 
+		cache_key = _build_vintage_response_cache_key(
+			'vintage-dashboard-generate',
+			{'dashboard_type': dashboard_type, 'filters': filters}
+		)
+		cached_payload = _get_cached_vintage_response(cache_key)
+		if cached_payload is not None:
+			return jsonify({'success': True, 'data': cached_payload})
+
 		sql_filters = []
 		params = {}
 
@@ -4139,14 +4259,14 @@ def api_vintage_dashboard_generate():
 				excluded_values={'NA', 'NO SHOW'},
 			)
 
-			return jsonify({
-				'success': True,
-				'data': {
+			return _cache_and_return_vintage_dashboard_data(
+				cache_key,
+				{
 					'unique_players': unique_players,
 					'archetype_rows': archetype_rows,
 					'subarchetype_rows': subarchetype_rows,
 				}
-			})
+			)
 
 		if dashboard_type == 'matchup-graph':
 			rows = [dict(r._mapping) for r in db.session.execute(matches_sql, params).all()]
@@ -4185,15 +4305,15 @@ def api_vintage_dashboard_generate():
 				excluded_values={'NA', 'NO SHOW'},
 			)
 
-			return jsonify({
-				'success': True,
-				'data': {
+			return _cache_and_return_vintage_dashboard_data(
+				cache_key,
+				{
 					'unique_players': unique_players,
 					'match_win_pct': match_win_pct,
 					'opponent_archetype_rows': opponent_archetype_rows,
 					'opponent_subarchetype_rows': opponent_subarchetype_rows,
 				}
-			})
+			)
 
 		if dashboard_type == 'player-leaderboard':
 			player_rows_sql = text(
@@ -4480,9 +4600,9 @@ def api_vintage_dashboard_generate():
 					key=lambda r: (-r['total_matches'], -r['match_win_pct'], r['opponent'].lower())
 				)
 
-			return jsonify({
-				'success': True,
-				'data': {
+			return _cache_and_return_vintage_dashboard_data(
+				cache_key,
+				{
 					'unique_players': len(per_player),
 					'selected_player': selected_player,
 					'leaderboard_rows': leaderboard_rows,
@@ -4490,7 +4610,7 @@ def api_vintage_dashboard_generate():
 					'decks_played_rows': decks_played_rows,
 					'head_to_head_rows': head_to_head_rows,
 				}
-			})
+			)
 
 		# event-explorer
 		event_explorer_sql = text(
@@ -4740,18 +4860,18 @@ def api_vintage_dashboard_generate():
 					}
 
 		if dashboard_type == 'matchup-heatmap':
-			return jsonify({
-				'success': True,
-				'data': {
+			return _cache_and_return_vintage_dashboard_data(
+				cache_key,
+				{
 					'unique_players': unique_players,
 					'selected_event_id': selected_event_id,
 					'event_matchup_heatmap': event_matchup_heatmap,
 				}
-			})
+			)
 
-		return jsonify({
-			'success': True,
-			'data': {
+		return _cache_and_return_vintage_dashboard_data(
+			cache_key,
+			{
 				'unique_players': unique_players,
 				'selected_event_id': selected_event_id,
 				'winner': winner,
@@ -4762,7 +4882,7 @@ def api_vintage_dashboard_generate():
 				'event_bar_rows': event_bar_rows,
 				'event_matchup_heatmap': event_matchup_heatmap,
 			}
-		})
+		)
 
 	except Exception as error:
 		debug_log(f'Error generating vintage dashboard: {error}')
