@@ -104,6 +104,7 @@ def create_app():
 	db.init_app(app)
 
 	from modules.views import views
+	import modules.vintage  # registers vintage routes on the `views` blueprint
 	from modules.auth import auth
 
 	app.register_blueprint(views, url_prefix='/')

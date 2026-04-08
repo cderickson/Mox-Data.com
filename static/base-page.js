@@ -601,8 +601,10 @@ async function refreshVintageCache(event) {
     }
 
     const stats = result.stats || {};
+    const usedRedis = stats.used_redis !== false;
     alert(
       `Vintage cache cleared.\n` +
+      `Redis active: ${usedRedis ? 'yes' : 'no'}\n` +
       `Entries cleared: ${stats.cleared_entries ?? 0}\n` +
       `Cleared at (UTC): ${stats.cleared_at_utc || 'unknown'}`
     );

@@ -485,8 +485,8 @@ def manual_refresh_reference_cache():
 def manual_refresh_vintage_cache():
     """Manually clear vintage response caches (admin-only)."""
     try:
-        from modules import views as views_module
-        stats = views_module.clear_vintage_response_cache()
+        from modules.vintage import clear_vintage_response_cache
+        stats = clear_vintage_response_cache()
         return jsonify({
             'success': True,
             'message': 'Vintage response cache cleared.',
